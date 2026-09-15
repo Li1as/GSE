@@ -1,0 +1,10 @@
+{
+  "task_id": "REPLACE_WITH_LOCAL_TASK_ID",
+  "grade": "测试年级",
+  "graduation_pattern": "2005\\s*年\\s*6\\s*月",
+  "school": "示例大学",
+  "major": "示例专业",
+  "gpa": "3.21",
+  "language": "Python",
+  "excluded_year": "2010"
+}

@@ -1,0 +1,8 @@
+{
+  "address": "",
+  "password": "",
+  "imap_host": "imap.exmail.qq.com",
+  "imap_port": 993,
+  "smtp_host": "smtp.exmail.qq.com",
+  "smtp_port": 465
+}

@@ -25,3 +25,14 @@ __pycache__/
 build/
 dist/
 *.log
+
+# Lab1 个人资料与本地模型配置
+/lab1/data/
+/lab1/config.local.json
+/lab1/mail.local.json
+
+# Lab1 本地配置变体、备份与运行产物
+/lab1/*.local.json*
+/lab1/**/*.sqlite*
+/lab1/**/*.db*
+/lab1/**/*.eml
