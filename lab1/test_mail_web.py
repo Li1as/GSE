@@ -111,16 +111,23 @@ class WebTests(unittest.TestCase):
         scheduler.resume.return_value = {'scheduler': {'status': 'active'}}
         scheduler.cycle.return_value = {'classified': 0, 'dispatched': 0}
         scheduler.correct.return_value = {'validity': '1', 'uid': 7, 'category': 'no_reply'}
+        scheduler.dismiss.return_value = {'validity': '1', 'uid': 7, 'dismissed': True}
+        scheduler.restore.return_value = {'validity': '1', 'uid': 7, 'dismissed': False}
         self.web.scheduler = scheduler
         self.assertEqual(self.request('GET', '/api/automation')[0], 200)
         self.assertEqual(self.request('GET', '/api/mail-queue')[0], 200)
+        self.assertEqual(self.request('GET', '/api/mail-queue/handled')[0], 200)
         self.assertEqual(self.request('POST', '/api/automation/pause', {})[0], 200)
         self.assertEqual(self.request('POST', '/api/automation/resume', {})[0], 200)
         self.assertEqual(self.request('POST', '/api/automation/scan', {})[0], 200)
         data = {'validity': '1', 'uid': 7, 'category': 'no_reply', 'reason': '用户确认无需回复'}
         self.assertEqual(self.request('POST', '/api/mail-queue/correct', data)[0], 200)
+        self.assertEqual(self.request('POST', '/api/mail-queue/dismiss', {'validity': '1', 'uid': 7})[0], 200)
+        self.assertEqual(self.request('POST', '/api/mail-queue/restore', {'validity': '1', 'uid': 7})[0], 200)
         scheduler.cycle.assert_called_once_with(force=True)
         scheduler.correct.assert_called_once_with('1', 7, 'no_reply', '用户确认无需回复', '', '')
+        scheduler.dismiss.assert_called_once_with('1', 7)
+        scheduler.restore.assert_called_once_with('1', 7)
 
     def test_http_supplement_and_decision(self):
         self.fixture.path = fixtures.sample(self.fixture.root, '2')
@@ -172,6 +179,16 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request('POST', path + '/send', {'send_id': record['id']})[0], 200)
         self.request('POST', path + '/send', {'send_id': record['id']})
         transport.assert_called_once()
+        self.assertEqual(self.request('POST', path + '/archive', {})[0], 200)
+        self.assertEqual(json.loads(self.request('GET', '/api/tasks')[1]), [])
+        archived = json.loads(self.request('GET', '/api/tasks/archived')[1])
+        self.assertEqual([item['task_id'] for item in archived], [self.task['task_id']])
+        self.assertEqual(self.request('POST', path + '/resume', {})[0], 400)
+        self.assertEqual(self.request('POST', path + '/restore', {})[0], 200)
+        self.assertEqual(len(json.loads(self.request('GET', '/api/tasks')[1])), 1)
+
+    def test_task_without_accepted_send_cannot_be_archived(self):
+        self.assertEqual(self.request('POST', '/api/tasks/' + self.task['task_id'] + '/archive', {})[0], 400)
 
 
 if __name__ == '__main__':

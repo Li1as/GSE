@@ -1,5 +1,6 @@
 """Persistent stage-3E scheduler for collection, classification and task dispatch."""
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -25,6 +26,10 @@ class Scheduler:
         with self.inbox.connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS mail_scheduler (
                 stream TEXT PRIMARY KEY, payload TEXT NOT NULL)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS mail_queue_actions (
+                stream TEXT NOT NULL, validity TEXT NOT NULL, uid INTEGER NOT NULL,
+                action TEXT NOT NULL, classification_digest TEXT NOT NULL,
+                payload TEXT NOT NULL, PRIMARY KEY(stream,validity,uid))''')
 
     def _state(self):
         with self.inbox.connect() as db:
@@ -101,12 +106,33 @@ class Scheduler:
             if row.get('payload') and row['status'] in ('classified', 'corrected'):
                 category = row['payload']['current']['category']
                 categories[category] = categories.get(category, 0) + 1
-        return {'scheduler': state, 'monitor': monitor,
+        actions = self._actions()
+        handled = sum(1 for row in classifications
+                      if (row['validity'], row['uid']) in actions and
+                      actions[(row['validity'], row['uid'])]['action'] == 'dismissed' and
+                      actions[(row['validity'], row['uid'])]['classification_digest'] ==
+                      self.classification_digest(row))
+        return {'scheduler': state, 'monitor': monitor, 'handled_count': handled,
                 'classification_counts': classification_counts, 'category_counts': categories}
 
-    def items(self):
+    @staticmethod
+    def classification_digest(classification):
+        payload = classification.get('payload') or {}
+        value = [payload.get('source_hash'), payload.get('policy_version'), payload.get('current')]
+        return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def _actions(self):
+        with self.inbox.connect() as db:
+            return {(row['validity'], row['uid']): dict(row) for row in db.execute(
+                'SELECT * FROM mail_queue_actions WHERE stream=?', (self.inbox.stream,))}
+
+    def items(self, include_dismissed=False, limit=None):
+        if limit is not None and (type(limit) is not int or not 1 <= limit <= 100):
+            raise ValueError('队列列表上限无效。')
         inbox_rows = {(row['validity'], row['uid']): row for row in self.inbox.rows()}
         classified = {(row['validity'], row['uid']): row for row in self.classifier.rows()}
+        actions = self._actions()
+        archived_tasks = self.pipeline.tasks.archived_task_ids()
         result = []
         for identity, row in sorted(inbox_rows.items(), reverse=True):
             item = {'validity': row['validity'], 'uid': row['uid'], 'collection_status': row['status'],
@@ -131,8 +157,55 @@ class Scheduler:
                     item['task_id'] = task_id
                     if task_id:
                         item['task_status'] = self.pipeline.tasks.get(task_id)['status']
+                        if task_id in archived_tasks:
+                            continue
+                action = actions.get(identity)
+                item['dismissed'] = bool(action and action['action'] == 'dismissed' and
+                                         action['classification_digest'] ==
+                                         self.classification_digest(classification))
+                if item['dismissed']:
+                    try:
+                        item['dismissed_at'] = json.loads(action['payload'])['dismissed_at']
+                    except (ValueError, TypeError, KeyError):
+                        item['dismissed_at'] = ''
+            else:
+                item['dismissed'] = False
+            if item['dismissed'] != include_dismissed:
+                continue
             result.append(item)
+        if include_dismissed:
+            result.sort(key=lambda item: (item.get('dismissed_at', ''), item['uid']), reverse=True)
+        if limit is not None:
+            result = result[:limit]
         return result
+
+    def dismiss(self, validity, uid):
+        if not isinstance(validity, str) or type(uid) is not int or uid < 1:
+            raise ValueError('邮件身份无效。')
+        row = next((item for item in self.classifier.rows()
+                    if item['validity'] == validity and item['uid'] == uid), None)
+        if not row or row['status'] not in ('classified', 'corrected') or not row.get('payload'):
+            raise ValueError('只能隐藏已经完成分类的邮件。')
+        if row['payload']['current']['category'] != 'no_reply':
+            raise ValueError('只有无需回复的邮件可以直接标记为已处理。')
+        payload = {'dismissed_at': utc_now(), 'category': 'no_reply'}
+        with self.inbox.connect() as db:
+            db.execute('INSERT OR REPLACE INTO mail_queue_actions VALUES (?,?,?,?,?,?)',
+                       (self.inbox.stream, validity, uid, 'dismissed',
+                        self.classification_digest(row), json.dumps(payload, ensure_ascii=False)))
+        return next(item for item in self.items(include_dismissed=True)
+                    if item['validity'] == validity and item['uid'] == uid)
+
+    def restore(self, validity, uid):
+        if not isinstance(validity, str) or type(uid) is not int or uid < 1:
+            raise ValueError('邮件身份无效。')
+        with self.inbox.connect() as db:
+            changed = db.execute('DELETE FROM mail_queue_actions WHERE stream=? AND validity=? AND uid=?',
+                                 (self.inbox.stream, validity, uid)).rowcount
+        if not changed:
+            raise ValueError('邮件没有被标记为已处理。')
+        return next(item for item in self.items()
+                    if item['validity'] == validity and item['uid'] == uid)
 
     def correct(self, validity, uid, category, reason, suggested_goal='', decision_question=''):
         self.classifier.correct(validity, uid, category, reason, suggested_goal, decision_question)

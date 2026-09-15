@@ -1,5 +1,6 @@
 import base64
 import copy
+import hashlib
 import threading
 import unittest
 from email import policy
@@ -121,6 +122,34 @@ class SendTests(unittest.TestCase):
         self.assertEqual(checked['status'], 'unknown')
         self.assertEqual(checked['sent_folder_check']['matches'], [])
         self.transport.assert_called_once()
+
+    def test_task_archive_is_persistent_and_restorable(self):
+        with self.assertRaises(AppError):
+            self.f.app.archive(self.task['task_id'], {'accepted_send_id': 'none'})
+        record = self.confirmed()
+        accepted = self.sender.send(self.task['task_id'], record['id'])
+        archived = self.f.app.archive(self.task['task_id'], {'accepted_send_id': accepted['id']})
+        self.assertIn(self.task['task_id'], self.f.app.archived_task_ids())
+        self.assertEqual(self.f.app.archived_tasks()[0]['accepted_send_id'], accepted['id'])
+        self.f.app.restore_archive(self.task['task_id'])
+        self.assertNotIn(self.task['task_id'], self.f.app.archived_task_ids())
+
+    def test_archived_task_history_is_limited_to_latest_ten(self):
+        import json, sqlite3
+        base = self.f.app.get(self.task['task_id'])
+        for number in range(12):
+            task = copy.deepcopy(base)
+            task['task_id'] = hashlib.sha256(str(number).encode()).hexdigest()
+            task['created_at'] = '2026-01-01T00:00:%02d+00:00' % number
+            self.f.app.save(task)
+            with sqlite3.connect(str(self.f.app.db_path)) as db:
+                db.execute('INSERT OR REPLACE INTO mail_task_actions VALUES (?,?,?,?)',
+                           (task['task_id'], 'archived', task['created_at'],
+                            json.dumps({'accepted_send_id': str(number)})))
+        recent = self.f.app.archived_tasks(limit=10)
+        self.assertEqual(len(recent), 10)
+        self.assertEqual([row['accepted_send_id'] for row in recent],
+                         [str(number) for number in range(11, 1, -1)])
 
 
 class TransportTests(unittest.TestCase):

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from assistant import Assistant
@@ -90,6 +91,61 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(item['category'], 'no_reply')
         self.assertNotIn('body', item)
         self.assertIsNone(item['task_id'])
+
+    def test_dismissed_no_reply_is_hidden_without_changing_classification(self):
+        self.reader.messages = {1: message(1, '通知，无需回复。', '测试通知')}
+        self.reader.upper = 1
+        self.monitor.once(include_existing=True)
+        app = self.app(Client([result('no_reply', '')]))
+        app.cycle()
+        before = app.classifier.rows()[0]['payload']['current']
+        hidden = app.dismiss('1', 1)
+        self.assertTrue(hidden['dismissed'])
+        self.assertEqual(app.items(), [])
+        self.assertEqual(len(app.items(include_dismissed=True)), 1)
+        self.assertEqual(app.classifier.rows()[0]['payload']['current'], before)
+        rebuilt = self.app(app.classifier.client)
+        self.assertEqual(rebuilt.items(), [])
+        restored = rebuilt.restore('1', 1)
+        self.assertFalse(restored['dismissed'])
+
+    def test_reply_required_cannot_be_hidden_as_processed(self):
+        self.reader.messages = {1: message(1, '请回复确认。')}
+        self.reader.upper = 1
+        self.monitor.once(include_existing=True)
+        app = self.app(Client([result('reply_required', '请回复确认。'),
+                               {'facts': [], 'decisions': [], 'blockers': []},
+                               {'body': '确认。', 'used_sources': []}]))
+        app.cycle()
+        with self.assertRaises(ValueError):
+            app.dismiss('1', 1)
+
+    def test_archived_reply_task_is_removed_from_mail_queue(self):
+        self.reader.messages = {1: message(1, '请回复确认。')}
+        self.reader.upper = 1
+        self.monitor.once(include_existing=True)
+        app = self.app(Client([result('reply_required', '请回复确认。'),
+                               {'facts': [], 'decisions': [], 'blockers': []},
+                               {'body': '确认。', 'used_sources': []}]))
+        app.cycle()
+        task_id = app.items()[0]['task_id']
+        with sqlite3.connect(str(app.pipeline.tasks.db_path)) as db:
+            db.execute('INSERT INTO mail_task_actions VALUES (?,?,?,?)',
+                       (task_id, 'archived', '2026-01-01T00:00:00+00:00', '{}'))
+        self.assertEqual(app.items(), [])
+        self.assertEqual(app.items(include_dismissed=True, limit=10), [])
+
+    def test_handled_list_returns_latest_ten_by_handled_time(self):
+        self.reader.messages = {uid: message(uid, '通知，无需回复。') for uid in range(1, 13)}
+        self.reader.upper = 12
+        self.monitor.once(include_existing=True)
+        app = self.app(Client([result('no_reply', '') for _ in range(12)]))
+        app.cycle(classify_limit=20, dispatch_limit=20)
+        for uid in range(1, 13):
+            app.dismiss('1', uid)
+        handled = app.items(include_dismissed=True, limit=10)
+        self.assertEqual(len(handled), 10)
+        self.assertEqual({item['uid'] for item in handled}, set(range(3, 13)))
 
 
 if __name__ == '__main__':

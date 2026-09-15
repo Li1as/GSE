@@ -24,6 +24,26 @@ class WebApp:
         self.sender = SendService(tasks, self.data, mail_config)
         self.sender.recover()
 
+    def task_summaries(self, archived=False, limit=None):
+        with sqlite3.connect(str(self.tasks.db_path)) as db:
+            rows = {task_id: json.loads(payload) for task_id, payload in
+                    db.execute('SELECT id,payload FROM mail_tasks')}
+        archive_rows = self.tasks.archived_tasks(limit or 100) if archived else []
+        archive_map = {row['task_id']: row for row in archive_rows}
+        selected = ([rows[row['task_id']] for row in archive_rows if row['task_id'] in rows]
+                    if archived else [task for key, task in rows.items() if key not in self.tasks.archived_task_ids()])
+        if not archived:
+            selected.sort(key=lambda task: task['created_at'], reverse=True)
+        summaries = [{'task_id': task['task_id'], 'subject': task['mail']['Subject'],
+                      'status': task['status'], 'created_at': task['created_at']}
+                     for task in selected]
+        for summary in summaries:
+            records = self.sender.history(summary['task_id'])
+            summary['delivery_status'] = records[-1]['status'] if records else None
+            if archived:
+                summary['archived_at'] = archive_map[summary['task_id']]['archived_at']
+        return summaries
+
     def snapshot_path(self, key):
         if not isinstance(key, str) or not re.fullmatch('[a-f0-9]{64}', key):
             raise AppError('INPUT_ERROR', '邮件快照编号无效。')
@@ -34,12 +54,14 @@ class WebApp:
 
     def dispatch(self, method, path, data):
         app = self.tasks
-        if path in ('/api/automation', '/api/mail-queue') and self.scheduler is None:
+        if (path.startswith('/api/automation') or path.startswith('/api/mail-queue')) and self.scheduler is None:
             raise AppError('CONFIG_ERROR', '持续邮件调度器未配置。')
         if method == 'GET' and path == '/api/automation':
             return self.scheduler.status()
         if method == 'GET' and path == '/api/mail-queue':
             return self.scheduler.items()
+        if method == 'GET' and path == '/api/mail-queue/handled':
+            return self.scheduler.items(include_dismissed=True, limit=10)
         if method == 'POST' and path == '/api/automation/pause':
             return self.scheduler.pause()
         if method == 'POST' and path == '/api/automation/resume':
@@ -50,17 +72,16 @@ class WebApp:
             return self.scheduler.correct(data.get('validity'), data.get('uid'), data.get('category'),
                                           data.get('reason'), data.get('suggested_goal', ''),
                                           data.get('decision_question', ''))
+        if method == 'POST' and path == '/api/mail-queue/dismiss':
+            return self.scheduler.dismiss(data.get('validity'), data.get('uid'))
+        if method == 'POST' and path == '/api/mail-queue/restore':
+            return self.scheduler.restore(data.get('validity'), data.get('uid'))
         if method == 'POST' and path == '/api/attachments':
             return self.sender.upload(data.get('name'), data.get('base64'))
         if method == 'GET' and path == '/api/tasks':
-            with sqlite3.connect(str(app.db_path)) as db:
-                rows = [json.loads(r[0]) for r in db.execute('SELECT payload FROM mail_tasks')]
-            summaries = [{'task_id': t['task_id'], 'subject': t['mail']['Subject'], 'status': t['status'],
-                     'created_at': t['created_at']} for t in sorted(rows, key=lambda t:t['created_at'], reverse=True)]
-            for summary in summaries:
-                records = self.sender.history(summary['task_id'])
-                summary['delivery_status'] = records[-1]['status'] if records else None
-            return summaries
+            return self.task_summaries()
+        if method == 'GET' and path == '/api/tasks/archived':
+            return self.task_summaries(archived=True, limit=10)
         if method == 'GET' and path == '/api/snapshots':
             rows = []
             for p in sorted((self.data / 'mail').glob('*/message.json')):
@@ -96,15 +117,18 @@ class WebApp:
                 raise AppError('INPUT_ERROR', '历史最多四封。')
             return app.create(self.snapshot_path(data.get('snapshot')), data.get('goal'),
                               [self.snapshot_path(k) for k in history])
-        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|conversation-update|prepare-send|confirm-send|send|reconcile))?', path)
+        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|conversation-update|prepare-send|confirm-send|send|reconcile|archive|restore))?', path)
         if match:
             task_id, action = match.groups()
             if method == 'GET' and action is None:
                 task = app.get(task_id)
                 task['send_records'] = self.sender.history(task_id)
                 task['requests'] = app.visible_requests(task)
+                task['archived'] = task_id in app.archived_task_ids()
                 return task
             if method == 'POST':
+                if action != 'restore' and task_id in app.archived_task_ids():
+                    raise AppError('INPUT_ERROR', '任务已归档，请先恢复后再操作。')
                 if action == 'prepare-send':
                     return self.sender.preview(task_id, data.get('version'))
                 if action == 'confirm-send':
@@ -116,6 +140,14 @@ class WebApp:
                     return self.sender.send(task_id, data.get('send_id'))
                 if action == 'reconcile':
                     return self.sender.reconcile(task_id, data.get('send_id'))
+                if action == 'archive':
+                    records = self.sender.history(task_id)
+                    accepted = [record for record in records if record['status'] == 'accepted']
+                    if not accepted:
+                        raise AppError('INPUT_ERROR', '只有 SMTP 已接收的回复任务可以归档。')
+                    return app.archive(task_id, {'accepted_send_id': accepted[-1]['id']})
+                if action == 'restore':
+                    return app.restore_archive(task_id)
                 if action == 'replan':
                     return app.replan(task_id)
                 if action == 'retry-child':

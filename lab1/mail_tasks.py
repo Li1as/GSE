@@ -114,6 +114,9 @@ class MailTasks:
             db.execute('''CREATE TABLE IF NOT EXISTS mail_dispatches (
                 source_id TEXT PRIMARY KEY, classification_digest TEXT NOT NULL,
                 processed_at TEXT NOT NULL, payload TEXT NOT NULL)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS mail_task_actions (
+                task_id TEXT PRIMARY KEY, action TEXT NOT NULL,
+                acted_at TEXT NOT NULL, payload TEXT NOT NULL)''')
 
     def save(self, task):
         task = dict(task)
@@ -131,6 +134,45 @@ class MailTasks:
         if task.get('draft'):
             task['freshness'] = 'current' if self.dependencies(task) == task['draft']['dependencies'] else 'stale'
         return task
+
+    def archived_task_ids(self):
+        with sqlite3.connect(str(self.db_path)) as db:
+            return {row[0] for row in db.execute(
+                "SELECT task_id FROM mail_task_actions WHERE action='archived'")}
+
+    def archived_tasks(self, limit=10):
+        require(type(limit) is int and 1 <= limit <= 100, '归档列表上限无效。')
+        with sqlite3.connect(str(self.db_path)) as db:
+            rows = db.execute(
+                "SELECT task_id,acted_at,payload FROM mail_task_actions "
+                "WHERE action='archived' ORDER BY acted_at DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(json.loads(payload), task_id=task_id, archived_at=acted_at)
+                for task_id, acted_at, payload in rows]
+
+    def archive(self, task_id, payload):
+        self.get(task_id)
+        require(isinstance(payload, dict) and text(payload.get('accepted_send_id'), 128),
+                '任务归档信息无效。')
+        with sqlite3.connect(str(self.db_path)) as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mail_sends'").fetchone()
+            row = (db.execute('SELECT payload FROM mail_sends WHERE id=? AND task_id=?',
+                              (payload['accepted_send_id'], task_id)).fetchone() if exists else None)
+        require(row is not None and json.loads(row[0]).get('status') == 'accepted',
+                '只有 SMTP 已接收的回复任务可以归档。')
+        archived_at = now()
+        with sqlite3.connect(str(self.db_path)) as db:
+            db.execute('INSERT OR REPLACE INTO mail_task_actions VALUES (?,?,?,?)',
+                       (task_id, 'archived', archived_at, json.dumps(payload, ensure_ascii=False)))
+        return dict(payload, task_id=task_id, archived_at=archived_at)
+
+    def restore_archive(self, task_id):
+        self.get(task_id)
+        with sqlite3.connect(str(self.db_path)) as db:
+            changed = db.execute(
+                "DELETE FROM mail_task_actions WHERE task_id=? AND action='archived'", (task_id,)).rowcount
+        require(changed == 1, '任务没有归档。')
+        return self.get(task_id)
 
     def model(self, system, data):
         try:

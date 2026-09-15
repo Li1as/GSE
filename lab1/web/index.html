@@ -4,8 +4,8 @@
 <section id="login"><h2>连接助手</h2><form id="login-form"><label>访问口令<input id="token" type="password" required autocomplete="current-password"></label><button>连接</button></form></section>
 <p id="notice" role="status" aria-live="polite"></p>
 <div id="workspace" hidden><nav><button id="refresh">刷新列表</button><button id="logout">退出</button></nav>
-<section><h2>自动邮件队列</h2><div id="automation"></div><p><button id="scan">立即扫描一轮</button> <button id="pause">暂停自动处理</button> <button id="resume">恢复自动处理</button></p><div id="mail-queue"></div></section>
+<section><h2>自动邮件队列</h2><div id="automation"></div><p><button id="scan">立即扫描一轮</button> <button id="pause">暂停自动处理</button> <button id="resume">恢复自动处理</button></p><div id="mail-queue"></div><details><summary>最近已处理邮件（最多 10 条）</summary><div id="handled-mail"></div></details></section>
 <section><h2>准备一封回复</h2><button id="inbox-load">查看最近收件</button><div id="inbox"></div>
 <form id="create"><label>选择已保存邮件<select id="snapshot" required></select></label><label>相关往来（可选，最多四封）<select id="history" multiple size="3"></select></label><label>希望助手做什么<textarea id="goal" required maxlength="4000" placeholder="例如：查询要求的资料，询问我是否参加，再准备回复"></textarea></label><button>开始准备</button></form></section>
-<section><h2>任务</h2><div id="tasks"></div></section><section id="detail" hidden></section></div>
+<section><h2>任务</h2><div id="tasks"></div><details><summary>最近已归档回复（最多 10 条）</summary><div id="archived-tasks"></div></details></section><section id="detail" hidden></section></div>
 </main><footer>发送前请核对完整预览。只有明确确认的版本才会发送。</footer></body></html>
