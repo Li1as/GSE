@@ -18,7 +18,9 @@ MAX_BYTES = 10 * 1024 * 1024
 
 
 class MailError(Exception):
-    pass
+    def __init__(self, message, code="READ_FAILED"):
+        super().__init__(message)
+        self.code = code
 
 
 class TimedIMAP(imaplib.IMAP4_SSL):
@@ -97,10 +99,10 @@ class Reader:
             self.conn.login(config['address'], config['password'])
         except imaplib.IMAP4.error:
             self.close()
-            raise MailError('AUTH_FAILED：请检查客户端服务与客户端专用密码；不自动重试。') from None
+            raise MailError('AUTH_FAILED：请检查客户端服务与客户端专用密码；不自动重试。', 'AUTH_FAILED') from None
         except (OSError, EOFError):
             self.close()
-            raise MailError('CONNECT_FAILED：无法建立或维持 IMAP TLS 连接。') from None
+            raise MailError('CONNECT_FAILED：无法建立或维持 IMAP TLS 连接。', 'CONNECT_FAILED') from None
 
     def close(self):
         if self.conn:
@@ -133,7 +135,7 @@ class Reader:
         if status != 'OK' or len(sizes) != 1:
             raise MailError('邮件不存在或无法读取大小。')
         if sizes[0] > MAX_BYTES:
-            raise MailError('邮件超过 10 MiB，2A 暂不读取。')
+            raise MailError('邮件超过 10 MiB，暂不读取。', 'TOO_LARGE')
         query = '(BODY.PEEK[HEADER])' if header else '(BODY.PEEK[])'
         status, rows = self.conn.uid('FETCH', uid, query)
         chunks = [row[1] for row in rows or [] if isinstance(row, tuple)]
@@ -144,6 +146,23 @@ class Reader:
         result.update(account=self.config['address'], folder=self.folder,
                       uidvalidity=self.validity, uid=uid)
         return result, raw
+
+    def uid_next(self):
+        _, values = self.conn.response('UIDNEXT')
+        if not values or not values[0] or not values[0].isdigit() or int(values[0]) < 1:
+            raise MailError('服务器没有返回有效 UIDNEXT。', 'PROTOCOL')
+        return int(values[0])
+
+    def uid_range(self, start, end):
+        if not (type(start) is int and type(end) is int and 1 <= start <= end):
+            raise MailError('无效 UID 区间。', 'INPUT_ERROR')
+        status, rows = self.conn.uid('SEARCH', None, 'UID', '%d:%d' % (start, end))
+        if status != 'OK' or not rows or not isinstance(rows[0], bytes):
+            raise MailError('UID 搜索失败。')
+        tokens = rows[0].split()
+        if any(not uid.isdigit() or int(uid) < 1 for uid in tokens):
+            raise MailError('UID 搜索返回无效标识。', 'PROTOCOL')
+        return sorted({int(uid) for uid in tokens if start <= int(uid) <= end})
 
     def recent(self, limit):
         if not 1 <= limit <= 100:

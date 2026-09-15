@@ -1,0 +1,17 @@
+[Unit]
+Description=GSE personal assistant mail scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/course/GSE
+ExecStart=/usr/bin/python3 %h/course/GSE/lab1/mail_scheduler.py run --interval 60
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

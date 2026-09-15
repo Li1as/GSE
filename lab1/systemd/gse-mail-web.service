@@ -1,0 +1,17 @@
+[Unit]
+Description=GSE personal assistant mobile web UI
+After=network-online.target gse-mail-scheduler.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/course/GSE
+ExecStart=/usr/bin/python3 %h/course/GSE/lab1/mail_web.py --host 0.0.0.0 --port 8765
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

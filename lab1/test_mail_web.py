@@ -102,6 +102,26 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request('GET', '/app.js', authenticated=False)[0], 200)
         self.assertEqual(self.request('POST', '/api/tasks', [1, 2])[0], 400)
 
+    def test_scheduler_status_controls_and_classification_correction(self):
+        from unittest.mock import Mock
+        scheduler = Mock()
+        scheduler.status.return_value = {'scheduler': {'status': 'active'}, 'monitor': {}}
+        scheduler.items.return_value = [{'validity': '1', 'uid': 7, 'category': 'user_review'}]
+        scheduler.pause.return_value = {'scheduler': {'status': 'paused'}}
+        scheduler.resume.return_value = {'scheduler': {'status': 'active'}}
+        scheduler.cycle.return_value = {'classified': 0, 'dispatched': 0}
+        scheduler.correct.return_value = {'validity': '1', 'uid': 7, 'category': 'no_reply'}
+        self.web.scheduler = scheduler
+        self.assertEqual(self.request('GET', '/api/automation')[0], 200)
+        self.assertEqual(self.request('GET', '/api/mail-queue')[0], 200)
+        self.assertEqual(self.request('POST', '/api/automation/pause', {})[0], 200)
+        self.assertEqual(self.request('POST', '/api/automation/resume', {})[0], 200)
+        self.assertEqual(self.request('POST', '/api/automation/scan', {})[0], 200)
+        data = {'validity': '1', 'uid': 7, 'category': 'no_reply', 'reason': '用户确认无需回复'}
+        self.assertEqual(self.request('POST', '/api/mail-queue/correct', data)[0], 200)
+        scheduler.cycle.assert_called_once_with(force=True)
+        scheduler.correct.assert_called_once_with('1', 7, 'no_reply', '用户确认无需回复', '', '')
+
     def test_http_supplement_and_decision(self):
         self.fixture.path = fixtures.sample(self.fixture.root, '2')
         task = self.fixture.waiting()

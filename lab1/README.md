@@ -6,6 +6,135 @@
 
 第二阶段详细设计见 [stage2-design.md](stage2-design.md)。2A 已通过真实 IMAP 登录、邮件列表、正文读取、快照、未读标志保持，以及跨收件箱和已发送目录的回复关联与附件校验。详见 [2A 验收记录](stage2-a-acceptance.md)。
 
+## 使用小步 3E：持续自动处理
+
+统一调度器按顺序执行增量收信、分类和任务分派。它不会自动确认或发送邮件：
+
+```bash
+# 执行一轮
+python3 lab1/mail_scheduler.py once
+# 每 60 秒持续运行，Ctrl+C 安全停止
+python3 lab1/mail_scheduler.py run --interval 60
+# 查看、暂停或恢复持久调度状态
+python3 lab1/mail_scheduler.py status
+python3 lab1/mail_scheduler.py pause
+python3 lab1/mail_scheduler.py resume
+```
+
+手机网页现在显示自动化状态、积压和分类队列，并可暂停、恢复、立即扫描及纠正单封邮件分类。长期运行服务模板位于 `systemd/`；模板尚未安装或启用。使用前需核对实际 Python 路径、WSL 的 systemd 状态和局域网转发。
+
+详见 [3E 验收及前三阶段总结](stage3-e-acceptance.md)。
+
+## 使用小步 3D：核对新的相关往来
+
+3D 会把已扫描且回复头可验证的新往来关联到未完成任务。任务详情页会保留现有草稿，并要求选择“纳入新往来并重新准备”或“标记为与本次回复无关”。完成选择前不能编辑、确认或发送，旧发送预览自动失效。
+
+也可使用 CLI：
+
+```bash
+python3 lab1/mail_pipeline.py review-update --task-id <任务ID> \
+  --source-id <新往来源ID> --action include
+python3 lab1/mail_pipeline.py review-update --task-id <任务ID> \
+  --source-id <新往来源ID> --action ignore
+```
+
+`include` 以新邮件为回复对象重新准备，并把此前的用户编辑作为参考；`ignore` 原样保留草稿内容但生成需要重新确认的新版本。两者都不会自动发送。详见 [3D 验收记录](stage3-d-acceptance.md)。
+
+## 使用小步 3C：统一邮件任务入口
+
+3C 将 3B 的分类结果接入阶段二邮件任务。自动和手动入口按完整 IMAP 身份复用同一任务；分类改为 `no_reply` 或 `user_review` 时暂停已有自动任务并阻止发送预览，改回 `reply_required` 后继续同一任务。
+
+```bash
+# 对已分类邮件执行一轮任务编排
+python3 lab1/mail_pipeline.py once
+# 持续执行采集、分类和任务编排
+python3 lab1/mail_pipeline.py run --interval 60
+```
+
+无历史邮件默认采用简洁、礼貌、偏正式且跟随来信主要语言的风格，不自动推断关系或添加签名；混合语言时会生成一次性风格问题。一次草稿修改不会自动形成长期偏好。实现范围、首次验收失败和修复见 [3C 验收记录](stage3-c-acceptance.md)。
+
+## 使用小步 3B：邮件分类与人工纠正
+
+3B 对 3A 已采集为 ready 的邮件分类，不读取个人资料库、不创建回复任务、不发送邮件。分类为 `reply_required`、`no_reply` 或 `user_review`，结果绑定邮件快照哈希并持久化。
+
+```bash
+# 先执行一轮增量采集，再分类到期的 ready 邮件
+python3 lab1/mail_classifier.py once
+# 持续执行采集与分类，默认每 60 秒一轮
+python3 lab1/mail_classifier.py run --interval 60
+# 查看分类记录；无需模型配置或网络
+python3 lab1/mail_classifier.py list
+```
+
+API 暂时错误按有限预算重试，失败不会被记为无需回复。`needs_review` 和 `failed` 不会自动重跑；核对后可指定记录重试：
+
+```bash
+python3 lab1/mail_classifier.py retry --validity <UIDVALIDITY> --uid <UID>
+```
+
+人工纠正会保留模型原判和纠正历史，不调用模型，也不自动推广为长期规则：
+
+```bash
+python3 lab1/mail_classifier.py correct --validity <UIDVALIDITY> --uid <UID> \
+  --category no_reply --reason '本次确认不需要再次回复'
+
+python3 lab1/mail_classifier.py correct --validity <UIDVALIDITY> --uid <UID> \
+  --category reply_required --reason '对方明确要求确认' \
+  --suggested-goal '准备一封确认邮件'
+
+python3 lab1/mail_classifier.py correct --validity <UIDVALIDITY> --uid <UID> \
+  --category user_review --reason '意图不明确' \
+  --decision-question '你是否希望回复这封邮件？'
+```
+
+CLI 当前是人工纠正入口；手机端分类列表和纠正操作属于 3E。分类后的自动邮件任务创建和统一去重已在 3C 实现。真实 API 验收可运行 `python3 lab1/live_classifier_acceptance.py`，它复制最近的 ready 快照到隔离目录，不修改生产分类状态。
+
+详见 [第三阶段设计](stage3-design.md)和[3B 验收记录](stage3-b-acceptance.md)。
+
+## 使用小步 3A：持续增量收信
+
+第三阶段设计见 [stage3-design.md](stage3-design.md)。3A 只采集并保存邮件，不分类、不调用模型、不创建回复任务、不发送邮件；后续分类和网页队列属于 3B—3E。
+
+```bash
+# 执行一轮；首次默认以当前 UIDNEXT-1 建立基线，不补录旧邮件
+python3 lab1/mail_monitor.py once
+# 持续采集，默认每 60 秒一轮；Ctrl+C 停止，重启沿用游标
+python3 lab1/mail_monitor.py run --interval 60 --batch 50
+# 本地状态、按邮件查看采集结果（不连接邮箱）
+python3 lab1/mail_monitor.py status
+python3 lab1/mail_monitor.py list
+```
+
+状态库位于 `data/monitor/inbox.sqlite`，快照位于 `data/monitor/mail/<账号端点标识>/<快照编号>/`。3C 已将分类结果接入第二阶段邮件任务；手机端分类列表仍待 3E。ready 仅表示采集完成，尚未分类。needs_review 表示超限、解析失败或重试耗尽，需人工查看；retry 等待自动退避。旧代记录保留，总计与当前代计数分别显示。
+
+`--span` 控制每轮搜索的 UID 数值区间大小（默认 1000），`--batch` 控制正文采集数（默认 50）。积压逐轮继续，不截取最近 N 封。邮件到达后即使已在其他客户端标为已读，仍按 UID 采集；程序使用只读 IMAP 和 BODY.PEEK，不改变邮箱标志。
+
+```bash
+# 仅首次初始化时选择从现存邮件开始；已有游标不会被该参数重置
+python3 lab1/mail_monitor.py once --include-existing
+# 已初始化的队列显式补录历史区间，代标识应使用 status 中核对后的值
+python3 lab1/mail_monitor.py once --accept-validity <当前UIDVALIDITY> --backfill <起始UID> <结束UID>
+# 修正本地凭据后，显式恢复已暂停的连接
+python3 lab1/mail_monitor.py once --resume
+# UIDVALIDITY 改变时，核对 observed_validity 后建立新代基线；旧记录保留
+python3 lab1/mail_monitor.py once --accept-validity <核对后的UIDVALIDITY>
+# 重置某条失败记录的采集预算，然后执行 once/run
+python3 lab1/mail_monitor.py retry --uid <邮件UID> --accept-validity <当前UIDVALIDITY>
+```
+
+默认重建新代时从当前边界开始；如需扫描新代现有邮件，显式同时传 `--include-existing`。不要未经核对接受代变更，以免把旧邮件重新视作新工作。补录区间宽度不得超过 span。单条采集自动尝试最多三次，网络连接按退避恢复，认证失败须显式恢复；错误记录仅保留错误类别。
+
+当前未安装后台服务，也未自动启动常驻监控。终端关闭或机器休眠期间不扫描，恢复后继续处理可见 UID；已被服务器删除且从未采集的正文无法恢复。无人值守服务部署后续单独处理。
+
+```bash
+# 3A 隔离模拟测试
+python3 -m unittest discover -s lab1 -p 'test_mail_monitor.py' -v
+# 真实只读验收，在独立目录验证基线、历史补录、恢复、快照与 FLAGS
+python3 lab1/live_monitor_acceptance.py
+```
+
+真实验收结果位于 `data/monitor-acceptance/<运行编号>/acceptance.json`。不会设置生产监控起点；具体结果与尚未覆盖的真实场景见 [3A 验收](stage3-a-acceptance.md)。
+
 ## 使用小步 2C
 
 2D 已增加发送预览、精确版本确认、抄送/密送、附件和发送记录，详见 [2D 验收记录](stage2-d-acceptance.md)。保存草稿后点击“生成最终发送预览”，核对并勾选，再点击“确认上述版本并发送”会实际发信。没有确认不会发送；结果不明时不能自动重发。

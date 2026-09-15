@@ -17,9 +17,10 @@ from mail_send import SendService
 
 
 class WebApp:
-    def __init__(self, tasks, data, token, mail_config=None):
+    def __init__(self, tasks, data, token, mail_config=None, scheduler=None):
         self.tasks, self.data, self.token = tasks, Path(data), token
         self.mail_config = mail_config
+        self.scheduler = scheduler
         self.sender = SendService(tasks, self.data, mail_config)
         self.sender.recover()
 
@@ -33,6 +34,22 @@ class WebApp:
 
     def dispatch(self, method, path, data):
         app = self.tasks
+        if path in ('/api/automation', '/api/mail-queue') and self.scheduler is None:
+            raise AppError('CONFIG_ERROR', '持续邮件调度器未配置。')
+        if method == 'GET' and path == '/api/automation':
+            return self.scheduler.status()
+        if method == 'GET' and path == '/api/mail-queue':
+            return self.scheduler.items()
+        if method == 'POST' and path == '/api/automation/pause':
+            return self.scheduler.pause()
+        if method == 'POST' and path == '/api/automation/resume':
+            return self.scheduler.resume()
+        if method == 'POST' and path == '/api/automation/scan':
+            return self.scheduler.cycle(force=True)
+        if method == 'POST' and path == '/api/mail-queue/correct':
+            return self.scheduler.correct(data.get('validity'), data.get('uid'), data.get('category'),
+                                          data.get('reason'), data.get('suggested_goal', ''),
+                                          data.get('decision_question', ''))
         if method == 'POST' and path == '/api/attachments':
             return self.sender.upload(data.get('name'), data.get('base64'))
         if method == 'GET' and path == '/api/tasks':
@@ -79,7 +96,7 @@ class WebApp:
                 raise AppError('INPUT_ERROR', '历史最多四封。')
             return app.create(self.snapshot_path(data.get('snapshot')), data.get('goal'),
                               [self.snapshot_path(k) for k in history])
-        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|prepare-send|confirm-send|send|reconcile))?', path)
+        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|conversation-update|prepare-send|confirm-send|send|reconcile))?', path)
         if match:
             task_id, action = match.groups()
             if method == 'GET' and action is None:
@@ -103,6 +120,8 @@ class WebApp:
                     return app.replan(task_id)
                 if action == 'retry-child':
                     return app.retry_child(task_id, data.get('child_id'))
+                if action == 'conversation-update':
+                    return app.review_conversation_update(task_id, data.get('source_id'), data.get('action'))
                 if action == 'answer':
                     if type(data.get('confirm_conflict', False)) is not bool:
                         raise AppError('INPUT_ERROR', '冲突确认须为布尔值。')
@@ -199,9 +218,20 @@ def main():
     token = token_path.read_text().strip()
     if len(token) < 32:
         raise SystemExit('访问口令过短，请更换 data/web-token.txt。')
-    tasks = MailTasks(Assistant(load_config(ROOT / 'config.local.json')))
+    assistant = Assistant(load_config(ROOT / 'config.local.json'))
+    tasks = MailTasks(assistant)
     config = json.loads((ROOT / 'mail.local.json').read_text()) if (ROOT / 'mail.local.json').exists() else None
-    server = ThreadingHTTPServer((args.host, args.port), handler(WebApp(tasks, ROOT / 'data', token, config)))
+    scheduler = None
+    if config:
+        from mail_classifier import Classifier
+        from mail_monitor import Monitor
+        from mail_pipeline import Pipeline
+        from mail_scheduler import Scheduler
+        monitor = Monitor(config, ROOT/'data/monitor')
+        classifier = Classifier(monitor.inbox, assistant.client)
+        scheduler = Scheduler(monitor, classifier, Pipeline(classifier, tasks))
+    server = ThreadingHTTPServer((args.host, args.port),
+                                 handler(WebApp(tasks, ROOT / 'data', token, config, scheduler)))
     print('网页 http://{}:{}；访问口令保存在 {}'.format(args.host, server.server_port, token_path), flush=True)
     try:
         server.serve_forever()

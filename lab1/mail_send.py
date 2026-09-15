@@ -138,6 +138,8 @@ class SendService:
 
     def content(self, task):
         require(self.config is not None, '未配置 SMTP。')
+        require(not task.get('automation_paused'), '来源邮件当前分类不允许发送，请先核对分类。')
+        require(not task.get('conversation_review_required'), '检测到新的相关往来，请先选择纳入或忽略。')
         require(task['status'] == 'draft_ready' and task.get('freshness') == 'current', '草稿尚未就绪或来源已过时。')
         d = task['draft']
         require(self.config['address'].lower() == task['mail']['account'].lower(), '发件账号与邮件任务不一致。')
@@ -155,6 +157,18 @@ class SendService:
     def check_terminal(self, task_id):
         require(not any(r['status'] in ('sending', 'unknown', 'accepted') for r in self.history(task_id)),
                 '此任务已有发送中、结果不明或已接收记录，不能再次发送。请先核对记录。')
+        task = self.tasks.get(task_id)
+        thread_id = task.get('thread_id')
+        if not thread_id:
+            return
+        with sqlite3.connect(str(self.tasks.db_path)) as db:
+            related = [row[0] for row in db.execute('SELECT id FROM mail_tasks WHERE id<>?', (task_id,))]
+        for other_id in related:
+            other = self.tasks.get(other_id)
+            if other.get('thread_id') != thread_id:
+                continue
+            require(not any(r['status'] in ('sending', 'unknown') for r in self.history(other_id)),
+                    '同一往来存在发送中或结果不明记录，不能从另一任务发送。')
 
     def preview(self, task_id, version):
         with self.tasks.assistant.task_lock('mail:' + task_id):
