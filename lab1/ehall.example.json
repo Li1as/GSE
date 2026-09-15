@@ -1,0 +1,14 @@
+{
+  "headless": true,
+  "timeout_seconds": 30,
+  "qr_wait_seconds": 180,
+  "task_hosts": [
+    "ehall.nju.edu.cn",
+    "ehallapp.nju.edu.cn"
+  ],
+  "allowed_navigation_hosts": [
+    "ehall.nju.edu.cn",
+    "ehallapp.nju.edu.cn",
+    "authserver.nju.edu.cn"
+  ]
+}

@@ -17,12 +17,31 @@ from mail_send import SendService
 
 
 class WebApp:
-    def __init__(self, tasks, data, token, mail_config=None, scheduler=None):
+    def __init__(self, tasks, data, token, mail_config=None, scheduler=None,
+                 ehall=None, ehall_worker=None, ehall_files=None, ehall_submit=None):
         self.tasks, self.data, self.token = tasks, Path(data), token
         self.mail_config = mail_config
         self.scheduler = scheduler
+        self.ehall, self.ehall_worker, self.ehall_files = ehall, ehall_worker, ehall_files
+        self.ehall_submit = ehall_submit
         self.sender = SendService(tasks, self.data, mail_config)
         self.sender.recover()
+
+    def ehall_qr(self):
+        path = self.data / 'ehall' / 'login' / 'qr.png'
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+            raise AppError('LOGIN_NOT_WAITING', '当前没有等待扫码的 ehall 登录。')
+        return path.read_bytes()
+
+    def ehall_task(self, task_id):
+        task = self.ehall.public(self.ehall.get(task_id))
+        task['archived'] = self.ehall.is_archived(task_id)
+        task['actions'] = self.ehall.actions(task_id)
+        task['requests'] = self.ehall.visible_requests(task_id)
+        task['job'] = self.ehall_worker.status(task_id) if self.ehall_worker else None
+        task['previews'] = self.ehall_submit.previews(task_id) if self.ehall_submit else []
+        task['submissions'] = self.ehall_submit.submissions(task_id) if self.ehall_submit else []
+        return task
 
     def task_summaries(self, archived=False, limit=None):
         with sqlite3.connect(str(self.tasks.db_path)) as db:
@@ -54,6 +73,76 @@ class WebApp:
 
     def dispatch(self, method, path, data):
         app = self.tasks
+        if path.startswith('/api/ehall') and self.ehall is None:
+            raise AppError('CONFIG_ERROR', 'ehall 任务服务未配置。')
+        if method == 'GET' and path == '/api/ehall/tasks':
+            return self.ehall.summaries()
+        if method == 'GET' and path == '/api/ehall/tasks/archived':
+            return self.ehall.summaries(archived=True, limit=10)
+        if method == 'POST' and path == '/api/ehall/attachments':
+            if self.ehall_files is None:
+                raise AppError('CONFIG_ERROR', 'ehall 附件存储未配置。')
+            return self.ehall_files.upload(data.get('name'), data.get('base64'),
+                                           data.get('content_type'))
+        if method == 'POST' and path == '/api/ehall/tasks':
+            task = self.ehall.create(data.get('url'), data.get('description', ''),
+                                     data.get('attachments'))
+            if self.ehall_worker:
+                self.ehall_worker.enqueue(task['task_id'])
+            return self.ehall.public(task)
+        if method == 'GET' and path == '/api/ehall/login':
+            status = self.data / 'ehall' / 'login' / 'qr.json'
+            if status.is_symlink() or not status.is_file():
+                return {'status': 'idle'}
+            value = json.loads(status.read_text(encoding='utf-8'))
+            return {'status': value.get('status'), 'captured_at': value.get('captured_at'),
+                    'qr_url': '/api/ehall/login/qr'}
+        match = re.fullmatch('/api/ehall/tasks/([a-f0-9]{32})(?:/(answer|decide|edit|prepare|preview|confirm|submit|reconcile|archive|restore))?', path)
+        if match:
+            task_id, action = match.groups()
+            if method == 'GET' and action is None:
+                return self.ehall_task(task_id)
+            if method == 'POST':
+                if self.ehall.is_archived(task_id) and action != 'restore':
+                    raise AppError('STATE_CONFLICT', '该 ehall 任务已归档，请先恢复。')
+                if action == 'answer':
+                    if type(data.get('confirm_conflict', False)) is not bool:
+                        raise AppError('INPUT_ERROR', '冲突确认须为布尔值。')
+                    result = self.ehall.answer(task_id, data.get('request_id'), data.get('text'),
+                                               data.get('scope'), data.get('confirm_conflict', False))
+                elif action == 'decide':
+                    result = self.ehall.decide(task_id, data.get('field_id'), data.get('answer'))
+                elif action == 'edit':
+                    result = self.ehall.edit(task_id, data.get('version'), data.get('values'),
+                                             data.get('attachments'))
+                elif action == 'prepare':
+                    result = self.ehall.get(task_id)
+                elif action == 'preview':
+                    if self.ehall_submit is None:
+                        raise AppError('CONFIG_ERROR', 'ehall 确认服务未配置。')
+                    return self.ehall_submit.preview(task_id, data.get('version'))
+                elif action == 'confirm':
+                    if self.ehall_submit is None:
+                        raise AppError('CONFIG_ERROR', 'ehall 确认服务未配置。')
+                    return self.ehall_submit.confirm(task_id, data.get('preview_id'),
+                                                     data.get('fingerprint'), data.get('confirmed'))
+                elif action == 'submit':
+                    if self.ehall_submit is None or self.ehall_worker is None:
+                        raise AppError('CONFIG_ERROR', 'ehall 提交服务未配置。')
+                    return self.ehall_worker.enqueue_submit(task_id, data.get('preview_id'))
+                elif action == 'reconcile':
+                    if self.ehall_submit is None or self.ehall_worker is None:
+                        raise AppError('CONFIG_ERROR', 'ehall 核对服务未配置。')
+                    return self.ehall_worker.enqueue_reconcile(task_id, data.get('submission_id'))
+                elif action == 'archive':
+                    return self.ehall.public(self.ehall.archive(task_id))
+                elif action == 'restore':
+                    return self.ehall.public(self.ehall.restore(task_id))
+                else:
+                    raise AppError('NOT_FOUND', '接口不存在。')
+                if self.ehall_worker and result['status'] in ('new', 'ready_to_fill', 'needs_review'):
+                    self.ehall_worker.enqueue(task_id)
+                return self.ehall.public(result)
         if (path.startswith('/api/automation') or path.startswith('/api/mail-queue')) and self.scheduler is None:
             raise AppError('CONFIG_ERROR', '持续邮件调度器未配置。')
         if method == 'GET' and path == '/api/automation':
@@ -184,7 +273,7 @@ def handler(app):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'no-referrer')
-            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'")
             self.end_headers()
             try:
                 self.wfile.write(raw)
@@ -213,9 +302,12 @@ def handler(app):
                 return self.respond(403, {'error': '拒绝跨站请求。'})
             try:
                 data = {}
+                if method == 'GET' and path == '/api/ehall/login/qr':
+                    return self.respond(200, app.ehall_qr(), 'image/png')
                 if method == 'POST':
                     length = int(self.headers.get('Content-Length', '0'))
-                    limit = 8 * 1024 * 1024 if path == '/api/attachments' else 100000
+                    limit = 8 * 1024 * 1024 if path in (
+                        '/api/attachments', '/api/ehall/attachments') else 100000
                     if not 0 < length <= limit or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                         return self.respond(400, {'error': '请求不是 JSON 或超过大小限制。'})
                     data = json.loads(self.rfile.read(length))
@@ -225,7 +317,7 @@ def handler(app):
                 return self.respond(200, result)
             except AppError as error:
                 status = 409 if error.code in ('VERSION_CONFLICT', 'DRAFT_STALE', 'TASK_BUSY') else 400
-                if error.code in ('NOT_FOUND', 'MAIL_NOT_FOUND'):
+                if error.code in ('NOT_FOUND', 'MAIL_NOT_FOUND', 'EHALL_NOT_FOUND'):
                     status = 404
                 self.respond(status, {'error': str(error), 'code': error.code})
             except (ValueError, TypeError, KeyError):
@@ -262,8 +354,18 @@ def main():
         monitor = Monitor(config, ROOT/'data/monitor')
         classifier = Classifier(monitor.inbox, assistant.client)
         scheduler = Scheduler(monitor, classifier, Pipeline(classifier, tasks))
+    ehall = ehall_worker = ehall_files = ehall_submit = None
+    if (ROOT / 'ehall.local.json').exists():
+        from ehall_tasks import EhallAttachmentStore, EhallTasks
+        from ehall_submit import EhallSubmitService
+        from ehall_worker import EhallWorker
+        ehall_files = EhallAttachmentStore(ROOT / 'data' / 'ehall' / 'attachments')
+        ehall = EhallTasks(assistant, attachment_store=ehall_files)
+        ehall_submit = EhallSubmitService(ehall)
+        ehall_worker = EhallWorker(ehall)
     server = ThreadingHTTPServer((args.host, args.port),
-                                 handler(WebApp(tasks, ROOT / 'data', token, config, scheduler)))
+                                 handler(WebApp(tasks, ROOT / 'data', token, config, scheduler,
+                                                ehall, ehall_worker, ehall_files, ehall_submit)))
     print('网页 http://{}:{}；访问口令保存在 {}'.format(args.host, server.server_port, token_path), flush=True)
     try:
         server.serve_forever()

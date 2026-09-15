@@ -1,0 +1,19 @@
+[Unit]
+Description=GSE explicitly queued ehall browser worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/course/GSE
+Environment=PLAYWRIGHT_BROWSERS_PATH=%h/course/GSE/lab1/data/ehall/browsers
+Environment=PYTHONPATH=%h/course/GSE/lab1/data/ehall/python-packages
+ExecStart=/usr/bin/python3 %h/course/GSE/lab1/ehall_worker.py run --interval 2
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

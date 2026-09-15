@@ -4,7 +4,7 @@ set -Eeuo pipefail
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_SOURCE="$PROJECT_ROOT/lab1/systemd"
 UNIT_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-SERVICES=(gse-mail-scheduler.service gse-mail-web.service)
+SERVICES=(gse-mail-scheduler.service gse-ehall-worker.service gse-mail-web.service)
 RUN_TESTS=1
 
 usage() {
@@ -82,7 +82,8 @@ except urllib.error.HTTPError as error:
         raise
 
 headers = {'Authorization': 'Bearer ' + token}
-paths = ('/api/tasks', '/api/tasks/archived', '/api/mail-queue', '/api/mail-queue/handled')
+paths = ('/api/tasks', '/api/tasks/archived', '/api/mail-queue', '/api/mail-queue/handled',
+         '/api/ehall/tasks', '/api/ehall/tasks/archived')
 counts = {}
 for path in paths:
     request = urllib.request.Request(base + path, headers=headers)
@@ -92,8 +93,14 @@ for path in paths:
             raise SystemExit(path + ' 返回格式无效。')
         counts[path] = len(value)
 
-if counts['/api/tasks/archived'] > 10 or counts['/api/mail-queue/handled'] > 10:
+if (counts['/api/tasks/archived'] > 10 or counts['/api/mail-queue/handled'] > 10 or
+        counts['/api/ehall/tasks/archived'] > 10):
     raise SystemExit('历史接口返回超过 10 条记录。')
+request = urllib.request.Request(base + '/api/ehall/login', headers=headers)
+with urllib.request.urlopen(request, timeout=5) as response:
+    value = json.loads(response.read())
+    if response.status != 200 or value.get('status') not in ('idle', 'waiting_scan'):
+        raise SystemExit('/api/ehall/login 返回格式无效。')
 print('接口验证通过：' + '，'.join(f'{path}={count}' for path, count in counts.items()))
 PY
 

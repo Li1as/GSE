@@ -1,3 +1,4 @@
+import base64
 import json
 import threading
 import unittest
@@ -7,6 +8,10 @@ from http.server import ThreadingHTTPServer
 from assistant import AppError, Assistant
 from mail_tasks import MailTasks
 from mail_web import WebApp, handler
+from ehall_tasks import EhallAttachmentStore, EhallTasks
+from ehall_submit import EhallSubmitService
+from ehall_worker import EhallWorker
+from test_ehall_tasks import FakeBackend
 import test_mail_tasks as fixtures
 
 
@@ -78,6 +83,16 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request('GET', '/api/tasks', authenticated=False)[0], 401)
         self.assertEqual(self.request('GET', '/api/tasks', origin='http://evil.test')[0], 403)
         self.assertEqual(self.request('GET', '/api/tasks')[0], 200)
+
+    def test_csp_allows_local_qr_blob_rendering(self):
+        conn = HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        conn.request('GET', '/')
+        response = conn.getresponse()
+        response.read()
+        policy = response.getheader('Content-Security-Policy')
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("img-src 'self' blob:", policy)
 
     def test_http_edit_conflict_and_reopen(self):
         path = '/api/tasks/' + self.task['task_id']
@@ -189,6 +204,88 @@ class WebTests(unittest.TestCase):
 
     def test_task_without_accepted_send_cannot_be_archived(self):
         self.assertEqual(self.request('POST', '/api/tasks/' + self.task['task_id'] + '/archive', {})[0], 400)
+
+    def test_ehall_mobile_create_qr_decide_edit_and_readback(self):
+        store = EhallAttachmentStore(self.fixture.root / 'ehall' / 'attachments')
+        ehall = EhallTasks(self.fixture.assistant, attachment_store=store)
+        snapshot = {'page_identity': 'my_timetable', 'courses': [
+            {'course_id': 'course-a', 'name': '合成课程 A', 'withdrawal_available': True}]}
+        worker = EhallWorker(ehall, FakeBackend(snapshot))
+        self.web.ehall, self.web.ehall_worker, self.web.ehall_files = ehall, worker, store
+
+        status, raw = self.request('POST', '/api/ehall/attachments', {
+            'name': 'note.txt', 'base64': base64.b64encode(b'fiction').decode(),
+            'content_type': 'text/plain'})
+        self.assertEqual(status, 200)
+        attachment = json.loads(raw)
+        target = ('https://ehallapp.nju.edu.cn/jwapp/sys/wdkb/'
+                  '*default/index.do?private=1#/xskcb')
+        status, raw = self.request('POST', '/api/ehall/tasks', {
+            'url': target, 'description': '仅作为任务描述', 'attachments': [attachment]})
+        self.assertEqual(status, 200)
+        task_id = json.loads(raw)['task_id']
+        self.assertNotIn('url', json.loads(raw))
+        self.assertEqual(worker.status(task_id)['status'], 'queued')
+
+        self.assertEqual(worker.run_once()['status'], 'waiting_input')
+        status, raw = self.request('GET', '/api/ehall/tasks/' + task_id)
+        task = json.loads(raw)
+        self.assertEqual(task['status'], 'waiting_input')
+        self.assertNotIn('url', task)
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/decide',
+                                      {'field_id': 'target_course', 'answer': 'course-a'})[0], 200)
+        self.assertEqual(worker.run_once()['status'], 'done')
+        task = json.loads(self.request('GET', '/api/ehall/tasks/' + task_id)[1])
+        self.assertEqual(task['status'], 'preview_ready')
+        version = task['field_version']
+        edit = {'version': version, 'values': {'target_course': 'course-a'},
+                'attachments': [attachment]}
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/edit', edit)[0], 200)
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/edit', edit)[0], 409)
+
+        self.assertEqual(worker.run_once()['status'], 'done')
+        submit = EhallSubmitService(ehall)
+        self.web.ehall_submit = submit
+        task = json.loads(self.request('GET', '/api/ehall/tasks/' + task_id)[1])
+        self.assertEqual(task['previews'], [])
+        status, raw = self.request('POST', '/api/ehall/tasks/' + task_id + '/preview',
+                                   {'version': task['field_version']})
+        self.assertEqual(status, 200)
+        preview = json.loads(raw)
+        self.assertEqual(preview['content']['fields'][0]['display'], '合成课程 A')
+        confirm = {'preview_id': preview['id'], 'fingerprint': preview['fingerprint'],
+                   'confirmed': False}
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/confirm',
+                                      confirm)[0], 400)
+        confirm['confirmed'] = True
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/confirm',
+                                      confirm)[0], 200)
+        status, raw = self.request('POST', '/api/ehall/tasks/' + task_id + '/submit',
+                                   {'preview_id': preview['id']})
+        self.assertEqual(status, 200)
+        record = json.loads(raw)
+        self.assertEqual(record['status'], 'queued')
+        self.assertEqual(record['kind'], 'submit')
+        self.assertTrue(hasattr(ehall.adapters['timetable_withdrawal'], 'submit'))
+        detail = json.loads(self.request('GET', '/api/ehall/tasks/' + task_id)[1])
+        self.assertEqual(detail['submissions'], [])
+        self.assertEqual(detail['job']['kind'], 'submit')
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/archive', {})[0], 400)
+        completed = ehall.get(task_id)
+        completed['status'] = 'succeeded'
+        ehall.save(completed)
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/archive', {})[0], 200)
+        self.assertEqual(json.loads(self.request('GET', '/api/ehall/tasks')[1]), [])
+        archived = json.loads(self.request('GET', '/api/ehall/tasks/archived')[1])
+        self.assertEqual([item['task_id'] for item in archived], [task_id])
+        self.assertEqual(self.request('POST', '/api/ehall/tasks/' + task_id + '/restore', {})[0], 200)
+        self.assertEqual(len(json.loads(self.request('GET', '/api/ehall/tasks')[1])), 1)
+
+        login = self.fixture.root / 'ehall' / 'login'
+        login.mkdir(parents=True)
+        (login / 'qr.png').write_bytes(b'fake-png')
+        self.assertEqual(self.request('GET', '/api/ehall/login/qr', authenticated=False)[0], 401)
+        self.assertEqual(self.request('GET', '/api/ehall/login/qr')[1], b'fake-png')
 
 
 if __name__ == '__main__':

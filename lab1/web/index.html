@@ -1,11 +1,13 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>个人助手 · 邮件</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
-<body><header><h1>个人助手 · 邮件</h1><p>准备回复，补充资料，审阅草稿</p></header><main>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>个人助手</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><header><h1>个人助手</h1><p>准备邮件与 ehall 事务，补充资料，审阅待执行内容</p></header><main>
 <section id="login"><h2>连接助手</h2><form id="login-form"><label>访问口令<input id="token" type="password" required autocomplete="current-password"></label><button>连接</button></form></section>
 <p id="notice" role="status" aria-live="polite"></p>
 <div id="workspace" hidden><nav><button id="refresh">刷新列表</button><button id="logout">退出</button></nav>
 <section><h2>自动邮件队列</h2><div id="automation"></div><p><button id="scan">立即扫描一轮</button> <button id="pause">暂停自动处理</button> <button id="resume">恢复自动处理</button></p><div id="mail-queue"></div><details><summary>最近已处理邮件（最多 10 条）</summary><div id="handled-mail"></div></details></section>
 <section><h2>准备一封回复</h2><button id="inbox-load">查看最近收件</button><div id="inbox"></div>
 <form id="create"><label>选择已保存邮件<select id="snapshot" required></select></label><label>相关往来（可选，最多四封）<select id="history" multiple size="3"></select></label><label>希望助手做什么<textarea id="goal" required maxlength="4000" placeholder="例如：查询要求的资料，询问我是否参加，再准备回复"></textarea></label><button>开始准备</button></form></section>
-<section><h2>任务</h2><div id="tasks"></div><details><summary>最近已归档回复（最多 10 条）</summary><div id="archived-tasks"></div></details></section><section id="detail" hidden></section></div>
-</main><footer>发送前请核对完整预览。只有明确确认的版本才会发送。</footer></body></html>
+<section><h2>任务</h2><div id="tasks"></div><details><summary>最近已归档回复（最多 10 条）</summary><div id="archived-tasks"></div></details></section><section id="detail" hidden></section>
+<section><h2>发起 ehall 任务</h2><form id="ehall-create"><label>任务 URL<input id="ehall-url" type="url" required maxlength="8192" placeholder="https://ehallapp.nju.edu.cn/..."></label><label>简要描述（可选）<textarea id="ehall-description" maxlength="4000"></textarea></label><label>可选附件（单个最大 5 MiB）<input id="ehall-create-file" type="file"></label><div id="ehall-create-files"></div><button>创建并开始读取</button></form><div id="ehall-login"></div></section>
+<section><h2>ehall 任务</h2><div id="ehall-tasks"></div></section><section><h2>已归档 ehall 任务</h2><div id="ehall-archived-tasks"></div></section><section id="ehall-detail" hidden></section></div>
+</main><footer>邮件发送和 ehall 提交前均须确认完整冻结预览；结果不明时不会自动重试。</footer></body></html>
