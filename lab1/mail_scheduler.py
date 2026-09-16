@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from assistant import API, AppError, Assistant, ROOT, load_config
+from experience import ExperienceStore
 from mail_classifier import Classifier, public
 from mail_monitor import Monitor
 from mail_pipeline import Pipeline
@@ -219,8 +220,9 @@ def build(config_path, mail_config_path, monitor_dir, tasks_db):
     mail_config = json.loads(mail_config_path.read_text())
     monitor = Monitor(mail_config, monitor_dir)
     assistant = Assistant(config, API(config), tasks_db)
-    tasks = MailTasks(assistant)
-    classifier = Classifier(monitor.inbox, assistant.client)
+    experience = ExperienceStore(assistant.db_path, ROOT/'experience/rules/mail')
+    tasks = MailTasks(assistant, experience)
+    classifier = Classifier(monitor.inbox, assistant.client, experience=experience)
     return Scheduler(monitor, classifier, Pipeline(classifier, tasks))
 
 

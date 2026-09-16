@@ -83,8 +83,10 @@ except urllib.error.HTTPError as error:
 
 headers = {'Authorization': 'Bearer ' + token}
 paths = ('/api/tasks', '/api/tasks/archived', '/api/mail-queue', '/api/mail-queue/handled',
-         '/api/ehall/tasks', '/api/ehall/tasks/archived')
+         '/api/ehall/tasks', '/api/ehall/tasks/archived',
+         '/api/experience/proposals', '/api/experience/rules')
 counts = {}
+values = {}
 for path in paths:
     request = urllib.request.Request(base + path, headers=headers)
     with urllib.request.urlopen(request, timeout=5) as response:
@@ -92,10 +94,19 @@ for path in paths:
         if response.status != 200 or not isinstance(value, list):
             raise SystemExit(path + ' 返回格式无效。')
         counts[path] = len(value)
+        values[path] = value
 
 if (counts['/api/tasks/archived'] > 10 or counts['/api/mail-queue/handled'] > 10 or
         counts['/api/ehall/tasks/archived'] > 10):
     raise SystemExit('历史接口返回超过 10 条记录。')
+if values['/api/tasks']:
+    task_id = values['/api/tasks'][0].get('task_id', '')
+    request = urllib.request.Request(base + '/api/tasks/' + task_id + '/experience', headers=headers)
+    with urllib.request.urlopen(request, timeout=5) as response:
+        value = json.loads(response.read())
+        if (response.status != 200 or set(value) != {
+                'task_id', 'experience_snapshot', 'applications'} or value['task_id'] != task_id):
+            raise SystemExit('任务经验审计接口返回格式无效。')
 request = urllib.request.Request(base + '/api/ehall/login', headers=headers)
 with urllib.request.urlopen(request, timeout=5) as response:
     value = json.loads(response.read())

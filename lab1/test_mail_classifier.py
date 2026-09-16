@@ -5,6 +5,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from mail_classifier import Classifier
+from experience import ExperienceStore
 from mail_monitor import Monitor
 from persistence import AppError
 from test_mail_monitor import CONFIG, FakeReader
@@ -100,6 +101,54 @@ class ClassifierTests(unittest.TestCase):
         self.assertNotIn('personal_data_dir', prompt[1]['content'])
         self.assertNotIn('api_key', prompt[1]['content'])
         self.assertIn('不可信数据', prompt[0]['content'])
+
+    def test_approved_classification_rule_is_snapshotted_and_audited(self):
+        store = ExperienceStore(self.root/'tasks.sqlite', self.root/'rules')
+        event = store.create_event('manual', {'correction': '维护通知不要求回复'})
+        proposal = store.create_proposal(event['id'], {
+            'rule_id': 'mail.classify.maintenance', 'title': '识别维护通知',
+            'domains': ['mail.classify'],
+            'instruction': '没有回复要求的系统维护通知按无需回复处理。',
+            'examples': ['系统维护，无需回复。'],
+            'counterexamples': ['维护通知明确要求确认时仍需回复。'],
+            'rationale': '避免为纯通知创建回复任务。',
+        })
+        store.approve(proposal['id'])
+        classified = result('no_reply', '', rule_results=[{
+            'rule_id': 'mail.classify.maintenance', 'version': 1,
+            'applicable': True, 'evidence_quotes': ['本周系统维护，无需回复。'],
+            'conclusion': '正文明确说明无需回复。',
+        }])
+        client = Client([classified])
+        # A newly constructed store represents a restarted classifier process.
+        restarted = ExperienceStore(self.root/'tasks.sqlite', self.root/'rules')
+        app = Classifier(self.monitor.inbox, client, experience=restarted)
+        app.once(1)
+        row = app.rows()[0]
+        self.assertEqual(row['status'], 'classified')
+        self.assertEqual(row['payload']['experience_snapshot']['rules'][0]['version'], 1)
+        self.assertIn('experience_rules', client.calls[0][1]['content'])
+        subject = '{}:{}:{}'.format(self.monitor.inbox.stream, row['validity'], row['uid'])
+        applications = restarted.applications('mail_classification', subject)
+        self.assertEqual(applications[0]['stage'], 'mail.classify')
+        self.assertTrue(applications[0]['payload']['rule_results'][0]['applicable'])
+
+    def test_classification_rule_requires_exact_current_mail_evidence(self):
+        store = ExperienceStore(self.root/'tasks.sqlite', self.root/'rules')
+        event = store.create_event('manual', {'correction': 'test'})
+        proposal = store.create_proposal(event['id'], {
+            'rule_id': 'mail.classify.evidence', 'title': '证据规则',
+            'domains': ['mail.classify'], 'instruction': '依据当前正文判断。',
+            'examples': [], 'counterexamples': [], 'rationale': '测试逐字依据。',
+        })
+        store.approve(proposal['id'])
+        invalid = result('no_reply', '', rule_results=[{
+            'rule_id': 'mail.classify.evidence', 'version': 1,
+            'applicable': True, 'evidence_quotes': ['并不存在的正文'],
+            'conclusion': '错误依据',
+        }])
+        row = Classifier(self.monitor.inbox, Client([invalid]), experience=store).once(1)[0]
+        self.assertEqual((row['status'], row['error']), ('retry', 'RULE_RESULT_INVALID'))
 
     def test_action_quote_must_be_in_current_body(self):
         app = self.app([result('reply_required', '不存在的原文')])

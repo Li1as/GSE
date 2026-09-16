@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from assistant import API, AppError, Assistant, ROOT, load_config
+from experience import ExperienceStore
 from mail_classifier import Classifier
 from mail_monitor import Monitor
 from mail_tasks import MailTasks, digest, snapshot
@@ -57,7 +58,9 @@ class Pipeline:
         return digest(['inbox', row['stream'], row['validity'], row['uid']])
 
     def _binding(self, row, current, payload):
-        classification_digest = digest([current, payload['source_hash'], payload['policy_version']])
+        classification_digest = digest([
+            current, payload['source_hash'], payload['policy_version'],
+            payload.get('experience_snapshot', {}).get('digest')])
         return {
             'source_id': self.source_id(row),
             'stream': row['stream'],
@@ -156,8 +159,9 @@ def main():
         mail_config = json.loads(args.mail_config.read_text())
         monitor = Monitor(mail_config, args.monitor_dir)
         assistant = Assistant(config, API(config), args.tasks_db)
-        tasks = MailTasks(assistant)
-        classifier = Classifier(monitor.inbox, assistant.client)
+        experience = ExperienceStore(assistant.db_path, ROOT/'experience/rules/mail')
+        tasks = MailTasks(assistant, experience)
+        classifier = Classifier(monitor.inbox, assistant.client, experience=experience)
         pipeline = Pipeline(classifier, tasks)
         if args.command == 'review-update':
             if not args.task_id or not args.source_id or not args.action:

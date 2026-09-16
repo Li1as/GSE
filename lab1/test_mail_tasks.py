@@ -5,6 +5,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from assistant import Assistant, AppError
+from experience import ExperienceStore
 from mail_reader import parse_message, save_snapshot
 from mail_tasks import MailTasks
 from test_assistant import ScriptedClient
@@ -98,6 +99,54 @@ class MailTaskTests(unittest.TestCase):
         reopened = MailTasks(Assistant(self.config, self.assistant.client, self.assistant.db_path))
         self.assertEqual(reopened.resume(task['task_id'])['draft'], task['draft'])
         self.assertEqual(reopened.worker(), [])
+
+    def test_rules_are_snapshotted_applied_and_only_refreshed_by_replan(self):
+        store = ExperienceStore(self.assistant.db_path, self.root/'rules')
+
+        def publish(instruction):
+            event = store.create_event('manual', {'instruction': instruction})
+            proposal = store.create_proposal(event['id'], {
+                'rule_id': 'mail.notice.date-semantics', 'title': '区分通知时间',
+                'domains': ['mail.plan', 'mail.draft'], 'instruction': instruction,
+                'examples': ['报名截止时间和活动开始时间分别表达。'],
+                'counterexamples': ['只有一个未标明角色的时间。'],
+                'rationale': '防止混淆通知中的时间。',
+            })
+            return store.approve(proposal['id'])
+
+        publish('报名截止时间不能当作活动开始时间。')
+        self.app = MailTasks(self.assistant, store)
+        quote = '请回复验收课程成绩并确认是否参加活动。'
+
+        def rule_results(version):
+            return [{'rule_id': 'mail.notice.date-semantics', 'version': version,
+                     'applicable': True, 'evidence_quotes': [quote],
+                     'conclusion': '当前通知的各时间角色必须分别保留。'}]
+
+        plan = {'facts': [], 'decisions': [], 'blockers': [], 'rule_results': rule_results(1)}
+        draft_value = {'body': '收到，我会分别核对通知中的时间。', 'used_sources': [],
+                       'rule_results': rule_results(1)}
+        self.responses([plan, draft_value])
+        task = self.app.create(self.path, '准备回复活动通知')
+        self.assertEqual(task['status'], 'draft_ready')
+        self.assertEqual(task['experience_snapshot']['mail.plan']['rules'][0]['version'], 1)
+        self.assertEqual(task['draft']['rule_results'][0]['version'], 1)
+        self.assertEqual([item['stage'] for item in store.applications('mail_task', task['task_id'])],
+                         ['mail.plan', 'mail.draft'])
+
+        publish('截止、提交和开始时间必须按原文角色分别保留。')
+        unchanged = self.app.get(task['task_id'])
+        self.assertEqual(unchanged['freshness'], 'current')
+        self.assertEqual(unchanged['experience_snapshot']['mail.plan']['rules'][0]['version'], 1)
+
+        plan2 = {'facts': [], 'decisions': [], 'blockers': [], 'rule_results': rule_results(2)}
+        draft2 = {'body': '收到，我会按原文分别核对所有时间。', 'used_sources': [],
+                  'rule_results': rule_results(2)}
+        self.responses([plan2, draft2])
+        updated = self.app.replan(task['task_id'])
+        self.assertEqual(updated['experience_snapshot']['mail.plan']['rules'][0]['version'], 2)
+        self.assertEqual(updated['draft']['version'], 2)
+        self.assertEqual(updated['draft']['rule_results'][0]['version'], 2)
 
     def test_temporary_isolation_and_request_ownership(self):
         first = self.supplement(self.waiting())

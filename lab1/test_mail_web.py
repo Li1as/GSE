@@ -6,12 +6,14 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 
 from assistant import AppError, Assistant
+from experience import ExperienceService, ExperienceStore
 from mail_tasks import MailTasks
 from mail_web import WebApp, handler
 from ehall_tasks import EhallAttachmentStore, EhallTasks
 from ehall_submit import EhallSubmitService
 from ehall_worker import EhallWorker
 from test_ehall_tasks import FakeBackend
+from test_assistant import ScriptedClient
 import test_mail_tasks as fixtures
 
 
@@ -114,7 +116,14 @@ class WebTests(unittest.TestCase):
 
     def test_static_assets_and_invalid_input(self):
         self.assertEqual(self.request('GET', '/', authenticated=False)[0], 200)
-        self.assertEqual(self.request('GET', '/app.js', authenticated=False)[0], 200)
+        status, script = self.request('GET', '/app.js', authenticated=False)
+        self.assertEqual(status, 200)
+        self.assertIn(b'/api/experience/from-classification', script)
+        self.assertIn(b'/api/experience/from-draft', script)
+        page = self.request('GET', '/', authenticated=False)[1]
+        self.assertIn('经验规则'.encode(), page)
+        self.assertIn(b'experience-active-rules', page)
+        self.assertIn(b'experience-disabled-rules', page)
         self.assertEqual(self.request('POST', '/api/tasks', [1, 2])[0], 400)
 
     def test_scheduler_status_controls_and_classification_correction(self):
@@ -204,6 +213,60 @@ class WebTests(unittest.TestCase):
 
     def test_task_without_accepted_send_cannot_be_archived(self):
         self.assertEqual(self.request('POST', '/api/tasks/' + self.task['task_id'] + '/archive', {})[0], 400)
+
+    def test_experience_draft_proposal_review_and_rule_controls(self):
+        candidate = {
+            'rule_id': 'mail.draft.concise', 'title': '保持回复简洁',
+            'domains': ['mail.draft'], 'instruction': '回复只保留完成目标所需的信息。',
+            'examples': ['直接回答明确问题。'], 'counterexamples': ['需要解释风险时不能省略说明。'],
+            'rationale': '用户明确要求后续回复更简洁。',
+        }
+        store = ExperienceStore(self.fixture.assistant.db_path, self.fixture.root/'experience-rules')
+        self.web.experience = ExperienceService(store, ScriptedClient([candidate]))
+        path = '/api/tasks/' + self.task['task_id']
+        self.assertEqual(json.loads(self.request('GET', '/api/experience/proposals')[1]), [])
+        self.assertEqual(self.request('POST', path + '/edit', {
+            'version': 1, 'body': '简洁回复。', 'subject': '回复',
+            'to': ['teacher@example.test']})[0], 200)
+        status, raw = self.request('POST', '/api/experience/from-draft', {
+            'task_id': self.task['task_id'], 'version': 2,
+            'guidance': '以后回复只保留完成目标所需的信息。'})
+        self.assertEqual(status, 200)
+        proposal = json.loads(raw)
+        self.assertEqual(proposal['status'], 'pending')
+        self.assertEqual(len(json.loads(self.request('GET', '/api/experience/proposals')[1])), 1)
+
+        revised = dict(candidate, instruction='回复应简洁，但不能省略风险和必要事实。')
+        status, raw = self.request('POST', '/api/experience/proposals/' + proposal['id'] + '/approve',
+                                   {'candidate': revised})
+        self.assertEqual(status, 200)
+        rule = json.loads(raw)
+        self.assertIn('不能省略风险', rule['versions'][0]['instruction'])
+        snapshot = store.snapshot('mail.draft')
+        application = store.record_application('mail_task', self.task['task_id'],
+            'mail.draft', snapshot, [{
+                'rule_id': 'mail.draft.concise', 'version': 1,
+                'applicable': True, 'evidence_quotes': ['简洁回复。'],
+                'conclusion': '用户当前草稿明确采用简洁回复。',
+            }])
+        detail = json.loads(self.request('GET', path)[1])
+        self.assertEqual(detail['experience_applications'][0]['id'], application['id'])
+        self.assertEqual(detail['experience_applications'][0]['payload']['snapshot'], snapshot)
+        self.assertEqual(self.request('GET', path + '/experience', authenticated=False)[0], 401)
+        status, raw = self.request('GET', path + '/experience')
+        self.assertEqual(status, 200)
+        audit = json.loads(raw)
+        self.assertEqual(set(audit), {'task_id', 'experience_snapshot', 'applications'})
+        self.assertEqual(audit['applications'][0]['id'], application['id'])
+        self.assertNotIn('mail', audit)
+        self.assertNotIn('draft', audit)
+        rules = json.loads(self.request('GET', '/api/experience/rules')[1])
+        self.assertEqual([item['id'] for item in rules], ['mail.draft.concise'])
+        rule_path = '/api/experience/rules/mail.draft.concise/'
+        self.assertEqual(self.request('POST', rule_path + 'disable', {'reason': '暂时停用'})[0], 200)
+        self.assertFalse(json.loads(self.request('GET', '/api/experience/rules')[1])[0]['enabled'])
+        self.assertEqual(self.request('POST', rule_path + 'restore', {'reason': '已核对'})[0], 200)
+        self.assertTrue(json.loads(self.request('GET', '/api/experience/rules')[1])[0]['enabled'])
 
     def test_ehall_mobile_create_qr_decide_edit_and_readback(self):
         store = EhallAttachmentStore(self.fixture.root / 'ehall' / 'attachments')

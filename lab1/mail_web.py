@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from assistant import Assistant, AppError, ROOT, load_config
+from experience import ExperienceService, ExperienceStore
 from mail_tasks import MailTasks
 from mail_reader import Reader, MailError, save_snapshot
 from mail_send import SendService
@@ -18,12 +19,14 @@ from mail_send import SendService
 
 class WebApp:
     def __init__(self, tasks, data, token, mail_config=None, scheduler=None,
-                 ehall=None, ehall_worker=None, ehall_files=None, ehall_submit=None):
+                 ehall=None, ehall_worker=None, ehall_files=None, ehall_submit=None,
+                 experience=None):
         self.tasks, self.data, self.token = tasks, Path(data), token
         self.mail_config = mail_config
         self.scheduler = scheduler
         self.ehall, self.ehall_worker, self.ehall_files = ehall, ehall_worker, ehall_files
         self.ehall_submit = ehall_submit
+        self.experience = experience
         self.sender = SendService(tasks, self.data, mail_config)
         self.sender.recover()
 
@@ -73,6 +76,32 @@ class WebApp:
 
     def dispatch(self, method, path, data):
         app = self.tasks
+        if path.startswith('/api/experience') and self.experience is None:
+            raise AppError('CONFIG_ERROR', '经验规则服务未配置。')
+        if method == 'GET' and path == '/api/experience/proposals':
+            return self.experience.proposals()
+        if method == 'GET' and path == '/api/experience/rules':
+            return self.experience.store.rules()
+        if method == 'POST' and path == '/api/experience/from-classification':
+            return self.experience.from_classification(
+                self.scheduler, data.get('validity'), data.get('uid'), data.get('guidance'))
+        if method == 'POST' and path == '/api/experience/from-draft':
+            return self.experience.from_draft(
+                self.tasks, data.get('task_id'), data.get('version'), data.get('guidance'))
+        match = re.fullmatch('/api/experience/proposals/([a-f0-9]{32})/(approve|reject)', path)
+        if match and method == 'POST':
+            proposal_id, action = match.groups()
+            if action == 'approve':
+                if 'candidate' in data:
+                    self.experience.store.revise_proposal(proposal_id, data['candidate'])
+                return self.experience.store.approve(proposal_id)
+            return self.experience.store.reject(proposal_id, data.get('reason'))
+        match = re.fullmatch('/api/experience/rules/([a-z][a-z0-9.-]{0,99})/(disable|restore)', path)
+        if match and method == 'POST':
+            rule_id, action = match.groups()
+            if action == 'disable':
+                return self.experience.store.disable(rule_id, data.get('reason'))
+            return self.experience.store.restore(rule_id, data.get('reason'))
         if path.startswith('/api/ehall') and self.ehall is None:
             raise AppError('CONFIG_ERROR', 'ehall 任务服务未配置。')
         if method == 'GET' and path == '/api/ehall/tasks':
@@ -206,14 +235,25 @@ class WebApp:
                 raise AppError('INPUT_ERROR', '历史最多四封。')
             return app.create(self.snapshot_path(data.get('snapshot')), data.get('goal'),
                               [self.snapshot_path(k) for k in history])
-        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|conversation-update|prepare-send|confirm-send|send|reconcile|archive|restore))?', path)
+        match = re.fullmatch('/api/tasks/([a-f0-9]{64})(?:/(answer|decide|resume|edit|replan|retry-child|conversation-update|prepare-send|confirm-send|send|reconcile|archive|restore|experience))?', path)
         if match:
             task_id, action = match.groups()
+            if method == 'GET' and action == 'experience':
+                task = app.get(task_id)  # Enforce task existence before exposing scoped audit data.
+                if self.experience is None:
+                    raise AppError('CONFIG_ERROR', '经验规则服务未配置。')
+                return {
+                    'task_id': task_id,
+                    'experience_snapshot': task.get('experience_snapshot'),
+                    'applications': self.experience.store.applications('mail_task', task_id),
+                }
             if method == 'GET' and action is None:
                 task = app.get(task_id)
                 task['send_records'] = self.sender.history(task_id)
                 task['requests'] = app.visible_requests(task)
                 task['archived'] = task_id in app.archived_task_ids()
+                task['experience_applications'] = (self.experience.store.applications(
+                    'mail_task', task_id) if self.experience is not None else [])
                 return task
             if method == 'POST':
                 if action != 'restore' and task_id in app.archived_task_ids():
@@ -343,7 +383,9 @@ def main():
     if len(token) < 32:
         raise SystemExit('访问口令过短，请更换 data/web-token.txt。')
     assistant = Assistant(load_config(ROOT / 'config.local.json'))
-    tasks = MailTasks(assistant)
+    experience_store = ExperienceStore(assistant.db_path, ROOT/'experience/rules/mail')
+    tasks = MailTasks(assistant, experience_store)
+    experience = ExperienceService(experience_store, assistant.client)
     config = json.loads((ROOT / 'mail.local.json').read_text()) if (ROOT / 'mail.local.json').exists() else None
     scheduler = None
     if config:
@@ -352,7 +394,7 @@ def main():
         from mail_pipeline import Pipeline
         from mail_scheduler import Scheduler
         monitor = Monitor(config, ROOT/'data/monitor')
-        classifier = Classifier(monitor.inbox, assistant.client)
+        classifier = Classifier(monitor.inbox, assistant.client, experience=experience_store)
         scheduler = Scheduler(monitor, classifier, Pipeline(classifier, tasks))
     ehall = ehall_worker = ehall_files = ehall_submit = None
     if (ROOT / 'ehall.local.json').exists():
@@ -365,7 +407,8 @@ def main():
         ehall_worker = EhallWorker(ehall)
     server = ThreadingHTTPServer((args.host, args.port),
                                  handler(WebApp(tasks, ROOT / 'data', token, config, scheduler,
-                                                ehall, ehall_worker, ehall_files, ehall_submit)))
+                                                ehall, ehall_worker, ehall_files, ehall_submit,
+                                                experience)))
     print('网页 http://{}:{}；访问口令保存在 {}'.format(args.host, server.server_port, token_path), flush=True)
     try:
         server.serve_forever()

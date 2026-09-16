@@ -1,0 +1,52 @@
+{
+  "active_version": 2,
+  "enabled": true,
+  "id": "mail.game-promotion-no-reply",
+  "schema_version": 1,
+  "versions": [
+    {
+      "approved_at": "2026-09-16T08:48:07.640556+00:00",
+      "counterexamples": [
+        "邮件要求回复、确认、提供材料或完成其他事项。",
+        "非游戏类推广邮件。",
+        "无法判断是否属于游戏推广广告的邮件。"
+      ],
+      "domains": [
+        "mail.classify"
+      ],
+      "examples": [
+        "主题或内容明确宣传游戏商品、折扣、特卖或愿望单促销的广告邮件。"
+      ],
+      "instruction": "将明确属于游戏推广、促销或折扣广告的邮件归类为 no_reply，不生成回复需求或待处理问题。",
+      "rationale": "用户明确要求将游戏推广广告统一视为无需回复；该规则仅适用于分类，不触发任何外部操作。",
+      "rule_id": "mail.game-promotion-no-reply",
+      "source_event_id": "4e89a94bab2d42e70c2143d958b984f0",
+      "source_hash": "b31c4884b998dec03efc0497f047f68d8b1bd42857ebf411a1f2e468d751f8ad",
+      "title": "游戏推广广告无需回复",
+      "version": 1
+    },
+    {
+      "approved_at": "2026-09-16T09:07:15.218221+00:00",
+      "counterexamples": [
+        "邮件明确要求收件人在指定期限前回复确认",
+        "邮件要求收件人回复提供必要信息以完成既有事项",
+        "无法判断是群发推广还是针对个人的既有事项。"
+      ],
+      "domains": [
+        "mail.classify"
+      ],
+      "examples": [
+        "游戏上线宣传邀请感兴趣的收件人回复了解试玩",
+        "游戏活动推广提示可点击链接或自愿报名参加",
+        "愿望单商品特卖通知。"
+      ],
+      "instruction": "明确属于游戏推广、折扣、愿望单促销或试玩招募的邮件归类为 no_reply。即使包含“如感兴趣可回复、点击、报名或联系我们”等可选营销 CTA，也不视为收件人的回复义务。只有邮件明确、定向要求收件人在期限内确认、回答、提供材料，或履行已有承诺时，本规则才不适用。",
+      "rationale": "区分可选营销 CTA 与真实回复义务，避免普通游戏广告因“可回复”措辞进入人工判断就。",
+      "rule_id": "mail.game-promotion-no-reply",
+      "source_event_id": "57eb707c1c97177612bdc85eadc9d3e6",
+      "source_hash": "c822ef3ed9eab83ad3e38a158dd71c2f8744ab9e0b7aaabfa873cb5b987de470",
+      "title": "游戏推广中的可选营销 CTA 归为无需回复",
+      "version": 2
+    }
+  ]
+}

@@ -35,6 +35,10 @@ category 只能是 reply_required、no_reply、user_review：
 quote 必须逐字来自当前邮件正文，不能引用历史或编造。没有明确行动时 action_requests=[]。
 reply_required 必须有 suggested_goal；user_review 必须有 decision_question。分类失败或信息不足时选择 user_review，不能假装 no_reply。
 历史只用于理解当前邮件，不代表完整会话。附件只有名称、类型、大小和哈希，未提供附件内容时必须说明限制。
+若输入包含 experience_rules，必须保持上述协议优先，并额外输出 rule_results；每条规则恰好一项：
+{"rule_id":"原编号","version":整数,"applicable":true或false,
+ "evidence_quotes":["当前邮件正文逐字片段"],"conclusion":"该规则如何适用或为何不适用"}。
+适用规则必须提供当前邮件正文中的逐字依据；规则不能授权发送、查询资料或替用户决定。
 """
 
 
@@ -48,8 +52,10 @@ def short(value, limit):
 
 
 class Classifier:
-    def __init__(self, inbox, client, clock=time.time, hook=lambda event: None):
+    def __init__(self, inbox, client, clock=time.time, hook=lambda event: None,
+                 experience=None):
         self.inbox, self.client, self.clock, self.hook = inbox, client, clock, hook
+        self.experience = experience
         with self.inbox.connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS mail_classifications (
                 stream TEXT NOT NULL, validity TEXT NOT NULL, uid INTEGER NOT NULL,
@@ -134,7 +140,7 @@ class Classifier:
         candidates.sort(key=lambda row: row['uid'], reverse=True)
         return candidates[:4]
 
-    def _validate(self, value, body):
+    def _validate(self, value, body, snapshot=None):
         if not isinstance(value, dict) or value.get('category') not in CATEGORIES:
             raise AppError('CLASSIFY_PROTOCOL', '分类响应结构无效。')
         if not short(value.get('reason'), 2000) or value.get('confidence') not in ('low', 'medium', 'high'):
@@ -160,8 +166,12 @@ class Classifier:
             raise AppError('CLASSIFY_PROTOCOL', '非回复分类不能创建建议回复目标。')
         if value['category'] != 'user_review' and question.strip():
             raise AppError('CLASSIFY_PROTOCOL', '非判断分类不能创建用户问题。')
-        return {key: value[key] for key in ('category', 'reason', 'confidence', 'action_requests',
-                                             'suggested_goal', 'decision_question', 'limitations')}
+        result = {key: value[key] for key in ('category', 'reason', 'confidence', 'action_requests',
+                                               'suggested_goal', 'decision_question', 'limitations')}
+        if snapshot is not None:
+            result['rule_results'] = self.experience.validate_rule_results(
+                snapshot, value.get('rule_results'), [body])
+        return result
 
     def _classify(self, inbox_row, existing):
         parsed, source_hash = self._source(inbox_row)
@@ -176,25 +186,39 @@ class Classifier:
         self._save(inbox_row['validity'], inbox_row['uid'], 'classifying', attempts)
         self.hook('before_model')
         try:
+            experience_snapshot = (self.experience.snapshot('mail.classify')
+                                   if self.experience is not None else None)
+            context = {
+                'current_mail': self._context(parsed),
+                'related_history': self._history(inbox_row, parsed),
+                'history_complete': False,
+            }
+            if experience_snapshot is not None:
+                context['experience_rules'] = experience_snapshot['rules']
             raw = self.client.complete([
                 {'role': 'system', 'content': SYSTEM},
-                {'role': 'user', 'content': json.dumps({
-                    'current_mail': self._context(parsed),
-                    'related_history': self._history(inbox_row, parsed),
-                    'history_complete': False,
-                }, ensure_ascii=False)}])
-            result = self._validate(json.loads(raw), parsed['body'])
+                {'role': 'user', 'content': json.dumps(context, ensure_ascii=False)}])
+            result = self._validate(json.loads(raw), parsed['body'], experience_snapshot)
             self.hook('after_model')
             payload = {'model_result': result, 'current': result, 'history': [],
                        'source_hash': source_hash, 'policy_version': POLICY_VERSION,
                        'classified_at': now()}
+            if experience_snapshot is not None:
+                payload['experience_snapshot'] = experience_snapshot
             self._save(inbox_row['validity'], inbox_row['uid'], 'classified', attempts,
                        payload=payload)
+            if experience_snapshot is not None:
+                subject_id = '{}:{}:{}'.format(self.inbox.stream, inbox_row['validity'],
+                                               inbox_row['uid'])
+                self.experience.record_application(
+                    'mail_classification', subject_id, 'mail.classify', experience_snapshot,
+                    result['rule_results'])
             self.hook('after_save')
             return self._row(inbox_row['validity'], inbox_row['uid'])
         except AppError as error:
             retryable = error.code in ('API_TIMEOUT', 'API_NETWORK', 'API_HTTP', 'API_FORMAT',
-                                        'API_TRUNCATED', 'CLASSIFY_PROTOCOL')
+                                        'API_TRUNCATED', 'CLASSIFY_PROTOCOL',
+                                        'RULE_RESULT_INVALID')
             status = 'retry' if retryable and attempts < 3 else 'failed'
             delay = 30 * 2 ** (attempts-1) if status == 'retry' else 0
             self._save(inbox_row['validity'], inbox_row['uid'], status, attempts,
@@ -312,14 +336,17 @@ def main():
     parser.add_argument('--reason')
     parser.add_argument('--suggested-goal', default='')
     parser.add_argument('--decision-question', default='')
+    parser.add_argument('--tasks-db', type=Path, default=ROOT/'data/tasks.sqlite')
     args = parser.parse_args()
     try:
         mail_config = json.loads(args.mail_config.read_text())
         monitor = Monitor(mail_config, args.data_dir)
+        from experience import ExperienceStore
+        experience = ExperienceStore(args.tasks_db, ROOT/'experience/rules/mail')
         if args.command in ('list', 'correct'):
-            app = Classifier(monitor.inbox, None)
+            app = Classifier(monitor.inbox, None, experience=experience)
         else:
-            app = Classifier(monitor.inbox, API(load_config(args.config)))
+            app = Classifier(monitor.inbox, API(load_config(args.config)), experience=experience)
         if args.command == 'list':
             result = [public(row) for row in app.rows()]
         elif args.command == 'retry':
