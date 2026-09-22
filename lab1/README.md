@@ -72,13 +72,13 @@ PYTHONPATH=lab1/data/ehall/python-packages PLAYWRIGHT_BROWSERS_PATH=lab1/data/eh
 python3 lab1/mail_scheduler.py once
 # 每 60 秒持续运行，Ctrl+C 安全停止
 python3 lab1/mail_scheduler.py run --interval 60
-# 查看、暂停或恢复持久调度状态
+# 查看、暂停或恢复持久调度状态；恢复会先验证 IMAP 并解除采集暂停
 python3 lab1/mail_scheduler.py status
 python3 lab1/mail_scheduler.py pause
 python3 lab1/mail_scheduler.py resume
 ```
 
-手机网页现在显示自动化状态、积压和分类队列，并可暂停、恢复、立即扫描及纠正单封邮件分类。长期运行服务模板位于 `systemd/`，当前机器已安装并启用；迁移到其他机器时需核对实际 Python 路径、WSL 的 systemd 状态和局域网转发。
+手机网页分别显示调度器和邮件扫描状态、积压和分类队列，并可暂停、验证连接后恢复、立即扫描及纠正单封邮件分类。明确的凭据拒绝会暂停邮件扫描；登录阶段不明确的服务器错误按临时连接故障退避。长期运行服务模板位于 `systemd/`，当前机器已安装并启用；迁移到其他机器时需核对实际 Python 路径、WSL 的 systemd 状态和局域网转发。
 
 分类为“无需回复”的邮件（包括人工纠正为无需回复的邮件）可点击“标记已处理并隐藏”。该操作不修改分类或邮箱已读状态；邮件保留在“已处理邮件”区域，可随时恢复。若分类后来发生变化，旧隐藏标记自动失效。
 

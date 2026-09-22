@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import sqlite3
 from pathlib import Path
+from unittest.mock import Mock
 
 from assistant import Assistant
 from mail_classifier import Classifier
@@ -9,6 +10,7 @@ from mail_monitor import Monitor
 from mail_pipeline import Pipeline
 from mail_scheduler import Scheduler
 from mail_tasks import MailTasks
+from mail_reader import MailError
 from test_assistant import ScriptedClient
 from test_mail_classifier import Client, message, result
 from test_mail_monitor import CONFIG, FakeReader
@@ -68,7 +70,33 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(app.status()['scheduler']['status'], 'paused')
         rebuilt = self.app(client)
         self.assertEqual(rebuilt.status()['scheduler']['status'], 'paused')
-        self.assertEqual(rebuilt.resume()['scheduler']['status'], 'active')
+        resumed = rebuilt.resume()
+        self.assertEqual(resumed['scheduler']['status'], 'active')
+        self.assertEqual(resumed['monitor']['state']['status'], 'active')
+
+    def test_resume_verifies_monitor_and_reports_failed_recovery(self):
+        client = Client([])
+        app = self.app(client)
+        app.pause()
+        self.monitor.factory = Mock(side_effect=MailError('private', 'AUTH_FAILED'))
+        result_value = app.resume()
+        self.assertEqual(result_value['scheduler']['status'], 'attention')
+        self.assertEqual(result_value['scheduler']['last_error'], 'AUTH_FAILED')
+        self.assertEqual(result_value['monitor']['state']['status'], 'paused')
+
+    def test_resume_recovers_durable_monitor_pause_and_scans(self):
+        client = Client([])
+        app = self.app(client)
+        self.monitor.factory = Mock(side_effect=MailError('private', 'AUTH_FAILED'))
+        self.monitor.once()
+        self.assertEqual(self.monitor.inbox.state()['status'], 'paused')
+        self.reader.messages = {1: message(1, '通知')}
+        self.reader.upper = 1
+        self.monitor.factory = Mock(side_effect=lambda config: self.reader)
+        result_value = app.resume()
+        self.assertEqual(result_value['scheduler']['status'], 'active')
+        self.assertEqual(result_value['monitor']['state']['status'], 'active')
+        self.assertEqual(result_value['monitor']['state']['cursor'], 1)
 
     def test_monitor_retry_is_reported_as_attention_not_success(self):
         client = Client([])

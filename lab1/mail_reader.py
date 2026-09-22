@@ -23,6 +23,20 @@ class MailError(Exception):
         self.code = code
 
 
+def login_error_code(error):
+    """Classify only explicit credential rejection as a permanent auth error."""
+    detail = str(error).lower().replace('_', ' ')
+    authentication_markers = (
+        'authenticationfailed', 'authentication failed', 'invalid credential',
+        'invalid password', 'password error', 'username or password',
+        'user or password', 'login failed', 'login denied',
+        'account disabled', 'account is disabled', 'account locked',
+        'account is locked',
+    )
+    return ('AUTH_FAILED' if any(marker in detail for marker in authentication_markers)
+            else 'CONNECT_FAILED')
+
+
 class TimedIMAP(imaplib.IMAP4_SSL):
     def _create_socket(self, *args, **kwargs):
         sock = socket.create_connection((self.host, self.port), timeout=20)
@@ -97,9 +111,14 @@ class Reader:
             self.conn = factory(config['imap_host'], config['imap_port'],
                                 ssl_context=ssl.create_default_context())
             self.conn.login(config['address'], config['password'])
-        except imaplib.IMAP4.error:
+        except imaplib.IMAP4.error as error:
             self.close()
-            raise MailError('AUTH_FAILED：请检查客户端服务与客户端专用密码；不自动重试。', 'AUTH_FAILED') from None
+            code = login_error_code(error)
+            if code == 'AUTH_FAILED':
+                message = 'AUTH_FAILED：请检查客户端服务与客户端专用密码；不自动重试。'
+            else:
+                message = 'CONNECT_FAILED：IMAP 登录阶段发生临时服务器或连接错误。'
+            raise MailError(message, code) from None
         except (OSError, EOFError):
             self.close()
             raise MailError('CONNECT_FAILED：无法建立或维持 IMAP TLS 连接。', 'CONNECT_FAILED') from None

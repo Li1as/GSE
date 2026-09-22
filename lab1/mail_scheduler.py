@@ -54,11 +54,21 @@ class Scheduler:
         return self.status()
 
     def resume(self):
-        with self.inbox.task_lock('scheduler-state:' + self.inbox.stream):
-            state = self._state()
-            state.update(status='active', failures=0, retry_at=0, last_error=None,
-                         resumed_at=utc_now())
-            self._save(state)
+        # Resume is an explicit recovery action: verify IMAP and clear the
+        # monitor's durable pause before reporting automation as healthy.
+        with self.inbox.task_lock('scheduler:' + self.inbox.stream):
+            monitor = self.monitor.once(resume=True)
+            monitor_state = monitor.get('state') or {}
+            operational = monitor_state.get('status') == 'active'
+            with self.inbox.task_lock('scheduler-state:' + self.inbox.stream):
+                state = self._state()
+                state.update(status='active' if operational else 'attention',
+                             failures=0, retry_at=0,
+                             last_error=monitor_state.get('error'),
+                             resumed_at=utc_now())
+                if operational:
+                    state['last_success'] = utc_now()
+                self._save(state)
         return self.status()
 
     def cycle(self, batch=50, classify_limit=20, dispatch_limit=20, force=False):

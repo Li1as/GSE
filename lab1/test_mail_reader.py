@@ -5,7 +5,8 @@ from pathlib import Path
 from unittest.mock import Mock
 from email.message import EmailMessage
 
-from mail_reader import Reader, MailError, MAX_BYTES, parse_message, save_snapshot, thread_candidates
+from mail_reader import (Reader, MailError, MAX_BYTES, login_error_code,
+                         parse_message, save_snapshot, thread_candidates)
 
 
 def sample():
@@ -73,12 +74,27 @@ class MailTests(unittest.TestCase):
 
     def test_auth_redacted_and_not_retried(self):
         factory = Mock()
-        factory.return_value.login.side_effect = imaplib.IMAP4.error('secret')
+        factory.return_value.login.side_effect = imaplib.IMAP4.error(
+            '[AUTHENTICATIONFAILED] invalid credentials: secret')
         with self.assertRaises(MailError) as raised:
             Reader({'address': 'a', 'password': 'secret', 'imap_host': 'h', 'imap_port': 993}, factory)
+        self.assertEqual(raised.exception.code, 'AUTH_FAILED')
         self.assertNotIn('secret', str(raised.exception))
         factory.return_value.login.assert_called_once()
         factory.return_value.logout.assert_called_once()
+
+    def test_ambiguous_login_error_is_retryable_and_redacted(self):
+        factory = Mock()
+        factory.return_value.login.side_effect = imaplib.IMAP4.error(
+            '[UNAVAILABLE] temporary backend failure: secret')
+        with self.assertRaises(MailError) as raised:
+            Reader({'address': 'a', 'password': 'secret', 'imap_host': 'h', 'imap_port': 993}, factory)
+        self.assertEqual(raised.exception.code, 'CONNECT_FAILED')
+        self.assertNotIn('secret', str(raised.exception))
+
+    def test_login_error_classifier_requires_explicit_auth_evidence(self):
+        self.assertEqual(login_error_code(imaplib.IMAP4.error('LOGIN failed')), 'AUTH_FAILED')
+        self.assertEqual(login_error_code(imaplib.IMAP4.error('[UNAVAILABLE] busy')), 'CONNECT_FAILED')
 
     def test_thread_not_subject_only(self):
         selected = parse_message(sample())
