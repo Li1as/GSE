@@ -1,0 +1,173 @@
+{
+  "checked_at": "2026-11-16",
+  "index": "https://jyywiki.cn/GSE/2026/",
+  "notes": "Markdown URLs return rendered HTML. New lecture/lab bodies are reconstructed as Markdown, preserving code, math and links; course cross-links point to local files. Existing lectures 1–3 and Lab1 retain their previous Markdown formatting after content comparison. Slides and new images are byte-for-byte downloads. No HTML lecture bodies are archived.",
+  "files": [
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect1.md",
+      "file": "01-welcome-to-the-future.md",
+      "sha256": "42bf87ad5e2a9ad31f5ab2180ccdee8585cca4462b2b033d8721f72dc5e67928",
+      "download_sha256": "eeed7d4b46399909b7d3c0e376f1c85be416817222234dbeb32dc264da8d47dd"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides1.html",
+      "file": "slides/01-welcome-to-the-future.html",
+      "sha256": "1e076988a10af24f9bb0234ad91ace624ce6b8a877ca3e57d98c23f853ea88b5",
+      "download_sha256": "1e076988a10af24f9bb0234ad91ace624ce6b8a877ca3e57d98c23f853ea88b5"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect2.md",
+      "file": "02-prompt-and-context-engineering.md",
+      "sha256": "a8b2580523fe66787fa7f5884a6e42fb0823c0d9a1fe7e9e1773f6e2316f1981",
+      "download_sha256": "1369da535633df366f89aa58d5fc279597bdb0a65145d21084f3b72951426230"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides2.html",
+      "file": "slides/02-prompt-and-context-engineering.html",
+      "sha256": "919ce9b64d435b2da3b1152224cf8c3634b829e24769087acfda9bf6f94c497e",
+      "download_sha256": "919ce9b64d435b2da3b1152224cf8c3634b829e24769087acfda9bf6f94c497e"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect3.md",
+      "file": "03-version-control.md",
+      "sha256": "04829c9e2f722c510d55a063a027878508817d15438ed7657691aae0213468b3",
+      "download_sha256": "ae2e886af3a8da90d3241b9b6ac2e2e3b7205e6c20105039c8f51bcdf579e53e"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides3.html",
+      "file": "slides/03-version-control.html",
+      "sha256": "cb977e9e19c15f9d6ab0dd3a82abfae56babbb8377880584ad70546276af5bd4",
+      "download_sha256": "cb977e9e19c15f9d6ab0dd3a82abfae56babbb8377880584ad70546276af5bd4"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect4.md",
+      "file": "04-version-control-2.md",
+      "sha256": "b8da602a6e4d1c94d348771331db927e30609ada7e05b27573a0a54279f87006",
+      "download_sha256": "a94a4cadc3ac429f160a4c72a2a9308ecb11e6a0ff3abbb92cb9faec4a008416"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides4.html",
+      "file": "slides/04-version-control-2.html",
+      "sha256": "7d5f06f1713ca59893008c925fc1f0f605fdfd85f0bdd7385039843747d9ccf2",
+      "download_sha256": "7d5f06f1713ca59893008c925fc1f0f605fdfd85f0bdd7385039843747d9ccf2"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect5.md",
+      "file": "05-software-engineering-history.md",
+      "sha256": "e93a601353e9cca8b3f2ef7811a6b2657854594a25cef1570ff1acd1bece991a",
+      "download_sha256": "555e7eadf26d7959dc1fc322367a3298f58d65f7fe406df10e764f3c1b007ca0"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides5.html",
+      "file": "slides/05-software-engineering-history.html",
+      "sha256": "e84cb50a6f542a1b9dd0b0a1bcf0e4b5a466ee43b631c6a83f492264d991d9ff",
+      "download_sha256": "e84cb50a6f542a1b9dd0b0a1bcf0e4b5a466ee43b631c6a83f492264d991d9ff"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect6.md",
+      "file": "06-requirements-and-architecture-1.md",
+      "sha256": "01e8dcc6d0219847364da7150298d2f76c01a24f7d3ea54f033f62e4efa1085f",
+      "download_sha256": "506a0cc8e73c59b58eaf3d385fde89d43c001f37397fd6c6d1504ee527d7f4b6"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides6.html",
+      "file": "slides/06-requirements-and-architecture-1.html",
+      "sha256": "3e580d390cf6e819675302dcef2c2bd624caed96ae178258a33e23e02a9c6520",
+      "download_sha256": "3e580d390cf6e819675302dcef2c2bd624caed96ae178258a33e23e02a9c6520"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect7.md",
+      "file": "07-requirements-and-architecture-2.md",
+      "sha256": "ff8b69b0d85f3ae990bb9a55b24907c32beee6a049066b332bad8084272ed189",
+      "download_sha256": "e5f9120a8765004e29d253c8a94051aa361127277a1a7f510df2a60faf1e9ac0"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides7.html",
+      "file": "slides/07-requirements-and-architecture-2.html",
+      "sha256": "4e6a907308facde06c8ea3e35e1c157732e72ed4cd7aeeae13f26569bcda0d7b",
+      "download_sha256": "4e6a907308facde06c8ea3e35e1c157732e72ed4cd7aeeae13f26569bcda0d7b"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect8.md",
+      "file": "08-agent-native-development.md",
+      "sha256": "2ed40bc3260de8bd2b161c7b8bb1dc84854dd4897ba9d8199a16442945c9721c",
+      "download_sha256": "11398492c7ddf3cf4b0f6c5b0f670ccc57b20e3f5c7826b6faa4933eecbd8465"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides8.html",
+      "file": "slides/08-agent-native-development.html",
+      "sha256": "1950a022ffca0ca6d47018f832ad23a52ffdbec3255fa983f0f2eba729d77061",
+      "download_sha256": "1950a022ffca0ca6d47018f832ad23a52ffdbec3255fa983f0f2eba729d77061"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect9.md",
+      "file": "09-deepseek-harness.md",
+      "sha256": "9992390d95864b1a1378d1c65f359afc44494913f156524c984c585e8c1bbd4b",
+      "download_sha256": "5721af426ca416a77c633573e0efdcbba485d4b7cb81bf211da8562616b2ddec"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides9.html",
+      "file": "slides/09-deepseek-harness.html",
+      "sha256": "78eafd2f8cefe2da6e7bdd77881814ea79b99eda3da99acaaf142fc972e49931",
+      "download_sha256": "78eafd2f8cefe2da6e7bdd77881814ea79b99eda3da99acaaf142fc972e49931"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect10.md",
+      "file": "10-software-evolution.md",
+      "sha256": "25c986b5993199e11800e73c966a817afe3662c799d7c272cc5259b05d3d6abc",
+      "download_sha256": "c95bf4a840e6ede420f6db11a758de4c7225d596c81835daf5ea0df65cd80812"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides10.html",
+      "file": "slides/10-software-evolution.html",
+      "sha256": "6f361ca541a37b3819d9f547b5acaa9f2d15268810305caa7487cba8074e5f3c",
+      "download_sha256": "6f361ca541a37b3819d9f547b5acaa9f2d15268810305caa7487cba8074e5f3c"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect11.md",
+      "file": "11-software-quality-assurance-1.md",
+      "sha256": "3e2ccb45aa55247316aa2b7c283f91748e832a43ef59e72517638a0a9c5dc820",
+      "download_sha256": "2d6f46b38ca342fa9d02d9c4190980db2e7cdc26c80869a5b1a2845dcd0fe7fe"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides11.html",
+      "file": "slides/11-software-quality-assurance-1.html",
+      "sha256": "004df361f0d3ab5698280a1ec9a978a47781cdb895d1b32ce525f529e9b458a4",
+      "download_sha256": "004df361f0d3ab5698280a1ec9a978a47781cdb895d1b32ce525f529e9b458a4"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lect12.md",
+      "file": "12-software-quality-assurance-2.md",
+      "sha256": "6aa73f601c95c52afc82ee768c6de20c87d3a41f10c14bcfbf8711ea1b30c37d",
+      "download_sha256": "9e19650fce0ead9c0e4ba78630675473625b59d7d161c552ea6fde6b038ef189"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/slides12.html",
+      "file": "slides/12-software-quality-assurance-2.html",
+      "sha256": "4c0e254b677e2802bd52093254a59a0d221b49f77464e77652a3cc7eca47a6fe",
+      "download_sha256": "4c0e254b677e2802bd52093254a59a0d221b49f77464e77652a3cc7eca47a6fe"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lab1.md",
+      "file": "lab1-growing-personal-assistant.md",
+      "sha256": "6c5ceda995c8df79d657b78757bb941e443f4e99d24c72ee785307954e4348b0",
+      "download_sha256": "50e14c1f8660f5436eec028b82d11238b25b3c2a2496ab754185aeaad8452736"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/lab2.md",
+      "file": "lab2-deeper-research.md",
+      "sha256": "187f0a39fd9f977a8faa26a602b55af10434e45f62c450e5174c7e7b0ce5a234",
+      "download_sha256": "dd96ffcea231422df39335cfe27045408b773266923bc2065b0722baa2d5b788"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/bot.webp",
+      "file": "bot.webp",
+      "sha256": "ffc4772d506fc38b53632630853a296e1b81e2acd6812c381b29eb4f79528df2"
+    },
+    {
+      "source": "https://jyywiki.cn/GSE/2026/search.webp",
+      "file": "search.webp",
+      "sha256": "8eda43f817633760e1b7c64c89a77d2ab14cb4e3bfd495c1f0fa8493c352cf71"
+    }
+  ]
+}
