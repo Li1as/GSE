@@ -2,7 +2,8 @@
 
 用于保存 [2026 秋季课程](https://jyywiki.cn/GSE/2026/)讲义，并开展课程实验。
 
-- [docs/README.md](docs/README.md)：讲义索引、课程摘要及 Lab1 说明。
+- [docs/README.md](docs/README.md)：讲义索引、课程摘要及 Lab1/Lab2 说明。
+- [2026-11-16 更新说明](docs/update-2026-11-16.md)：新增第 4–12 讲、Lab2，以及考核与实验计分说明。
 - `docs/`：Markdown 讲义、实验要求和配图。
 - `docs/slides/`：HTML 幻灯片。
 - `lab1/`：Lab1 实验开发目录。

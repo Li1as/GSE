@@ -1,6 +1,8 @@
 # 生成式软件工程（2026 秋）讲义归档
 
-来源：[课程主页](https://jyywiki.cn/GSE/2026/)；下载日期：2026-09-14。课程主页在归档时共发布 3 讲讲义、3 份对应幻灯片和 Lab1。讲义与实验按课程页面的 Markdown 形式保存；幻灯片保留 HTML 原件。
+来源：[课程主页](https://jyywiki.cn/GSE/2026/)；首次归档：2026-09-14；最近核对：2026-11-16。当前归档共 12 讲、12 份对应幻灯片及 Lab1、Lab2。第 13 讲目前只有标题，没有资料链接。
+
+本次新增第 4–12 讲及 Lab2，详见 [更新内容与考核说明](update-2026-11-16.md)。讲义和实验以 Markdown 保存；网站返回渲染页面，新增正文按页面结构还原为 Markdown，并非原始源码的逐字节副本。幻灯片保存 HTML 原件。来源与文件校验值见 [归档清单](archive-manifest.json)。
 
 ## 文件索引
 
@@ -8,9 +10,18 @@
 | --- | --- | --- | --- |
 | 1 | 欢迎来到未来 | [Markdown](01-welcome-to-the-future.md) | [HTML](slides/01-welcome-to-the-future.html) |
 | 2 | 提示词与上下文工程 | [Markdown](02-prompt-and-context-engineering.md) | [HTML](slides/02-prompt-and-context-engineering.html) |
-| 3 | 版本管理 | [Markdown](03-version-control.md) | [HTML](slides/03-version-control.html) |
+| 3 | 版本管理 (1) | [Markdown](03-version-control.md) | [HTML](slides/03-version-control.html) |
+| 4 | 版本管理 (2) | [Markdown](04-version-control-2.md) | [HTML](slides/04-version-control-2.html) |
+| 5 | 软件工程的来龙去脉 | [Markdown](05-software-engineering-history.md) | [HTML](slides/05-software-engineering-history.html) |
+| 6 | 需求和架构 (1) | [Markdown](06-requirements-and-architecture-1.md) | [HTML](slides/06-requirements-and-architecture-1.html) |
+| 7 | 需求和架构 (2) | [Markdown](07-requirements-and-architecture-2.md) | [HTML](slides/07-requirements-and-architecture-2.html) |
+| 8 | Agent Native 开发 | [Markdown](08-agent-native-development.md) | [HTML](slides/08-agent-native-development.html) |
+| 9 | DeepSeek Harness | [Markdown](09-deepseek-harness.md) | [HTML](slides/09-deepseek-harness.html) |
+| 10 | 软件的演化 | [Markdown](10-software-evolution.md) | [HTML](slides/10-software-evolution.html) |
+| 11 | 软件质量保障 (1) | [Markdown](11-software-quality-assurance-1.md) | [HTML](slides/11-software-quality-assurance-1.html) |
+| 12 | 软件质量保障 (2) | [Markdown](12-software-quality-assurance-2.md) | [HTML](slides/12-software-quality-assurance-2.html) |
 
-实验讲义：[Lab1：会成长的个人助手](lab1-growing-personal-assistant.md)（配图：[ai-native.webp](ai-native.webp)）。
+实验讲义：[Lab1：会成长的个人助手](lab1-growing-personal-assistant.md)（配图：[ai-native.webp](ai-native.webp)）；[Lab2：Deeper Research](lab2-deeper-research.md)（配图：[bot.webp](bot.webp)、[search.webp](search.webp)）。
 
 ## 讲义内容摘要
 
@@ -33,6 +44,12 @@ Lab1 是**建议性实验，不计分**。目标是做一个可持续服务个�
 还要把成功流程和用户纠正沉淀成可读、可改的脚本、技能或记忆，并用 Git 管理实现与规则。课程给出的示例流程是：收到办事通知后检索资料、整理材料、在手机追问、准备 ehall 表单和邮件草稿，用户核对提交/发送后再归档结果。
 
 讲义将此实验定位为练习需求工程与可维护性：不要只做一次性可运行的 Agent，而要把可验收的行为、人工确认、可恢复流程与能跨会话复用的经验组织起来。
+
+## Lab2 与课程考核
+
+Lab2 在已有个人资料检索基础上增加可控制预算的 `effort`，通过探索、查证、比较和修改提高结果质量；建议比较直接求解、低 effort 和高 effort 的质量、耗时及 token 消耗。Lab2 同样是**建议性实验，不计分**，未完成 Lab1 也可以开始。
+
+第 1 讲幻灯片的课程政策是尽量采用“通过 / 不通过”，“不验收作业，不评分”，Token 自费。本次公开资料中未找到具体分数权重、最终通过门槛、期末考试安排或 Lab1/Lab2 的统一提交入口、截止日期。不要将“实验不计分”推断为“课程自动通过”。来源、限定范围和新增各讲摘要见 [本次更新说明](update-2026-11-16.md)。
 
 ## 版权
 
